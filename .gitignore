@@ -1,0 +1,24 @@
+# Godot 4+
+.godot/
+
+# Imported/generated files
+.import/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE/editor files
+.vscode/
+
+# Build/export files
+build/
+dist/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Blender temporary files
+*.blend1
+*.blend2
