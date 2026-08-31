@@ -1,0 +1,45 @@
+[gd_scene format=3 uid="uid://jdul8bs8qcei"]
+
+[ext_resource type="Script" uid="uid://c2yqn73hlihxb" path="res://scenes/World.gd" id="1_world"]
+[ext_resource type="PackedScene" uid="uid://bgxy21gbmy8rc" path="res://scenes/player/Female.tscn" id="2_female"]
+[ext_resource type="PackedScene" uid="uid://djlirllwyuqbg" path="res://scenes/player/Male.tscn" id="3_male"]
+[ext_resource type="PackedScene" uid="uid://c4m7fw2wbe3cu" path="res://scenes/world/Cottage.tscn" id="4_cottage"]
+[ext_resource type="Script" uid="uid://cj70kp3km0vxa" path="res://scripts/camera/third_person_camera.gd" id="5_cam"]
+
+[sub_resource type="Environment" id="env"]
+background_mode = 1
+background_color = Color(0.55, 0.68, 0.72, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.75, 0.78, 0.8, 1)
+
+[node name="World" type="Node3D" unique_id=994824949]
+script = ExtResource("1_world")
+
+[node name="Cottage" parent="." unique_id=694886336 instance=ExtResource("4_cottage")]
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=334616215]
+transform = Transform3D(1, 0, 0, 0, 0.792749, 0.609959, 0, -0.609664, 0.792586, 0, 10, -2)
+light_energy = 1.1
+shadow_enabled = true
+
+[node name="Environment" type="WorldEnvironment" parent="." unique_id=1783039437]
+environment = SubResource("env")
+
+[node name="Omni" type="OmniLight3D" parent="." unique_id=882271461]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.8, 1)
+light_energy = 0.9
+shadow_enabled = true
+omni_range = 14.0
+
+[node name="CameraSystem" type="Node3D" parent="." unique_id=1114922004]
+script = ExtResource("5_cam")
+camera_path = NodePath("Camera")
+
+[node name="Camera" type="Camera3D" parent="CameraSystem" unique_id=589076008]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4, 6)
+
+[node name="Female" parent="." unique_id=1555295933 instance=ExtResource("2_female")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.2, 0.1, 8)
+
+[node name="Male" parent="." unique_id=888210795 instance=ExtResource("3_male")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.2, 0.1, 9)

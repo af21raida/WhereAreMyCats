@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://c4m7fw2wbe3cu"]
+
+[ext_resource type="Script" path="res://scripts/world/cottage_builder.gd" id="1_b"]
+
+[node name="Cottage" type="Node3D"]
+script = ExtResource("1_b")

@@ -1,0 +1,14 @@
+[gd_scene format=3 uid="uid://djlirllwyuqbg"]
+
+[ext_resource type="PackedScene" path="res://scenes/player/PlayerBase.tscn" id="1_base"]
+
+[node name="Male" instance=ExtResource("1_base")]
+character_id = &"male"
+can_be_controlled = false
+
+[node name="Model" parent="." index="0"]
+top_color = Color(0.42, 0.5, 0.52, 1)
+bottom_color = Color(0.36, 0.32, 0.28, 1)
+hair_color = Color(0.22, 0.18, 0.15, 1)
+is_female = false
+hair_length = 0.06

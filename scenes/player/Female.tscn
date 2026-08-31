@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://bgxy21gbmy8rc"]
+
+[ext_resource type="PackedScene" path="res://scenes/player/PlayerBase.tscn" id="1_base"]
+
+[node name="Female" instance=ExtResource("1_base")]
+character_id = &"female"
+
+[node name="Model" parent="." index="0"]
+top_color = Color(0.66, 0.48, 0.46, 1)
+bottom_color = Color(0.42, 0.34, 0.3, 1)
+hair_color = Color(0.47, 0.32, 0.2, 1)
+is_female = true
+hair_length = 0.18

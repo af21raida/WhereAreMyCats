@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dulhuje8knwea"]
+
+[ext_resource type="Script" path="res://tests/input_real_test.gd" id="1_t"]
+
+[node name="InputRealTest" type="Node"]
+script = ExtResource("1_t")

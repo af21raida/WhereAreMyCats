@@ -1,0 +1,101 @@
+class_name PlayerController
+extends CharacterBody3D
+## Shared controller for both protagonists. Movement, collision, gravity, and
+## simple "follow the female protagonist" behaviour for the male.
+##
+## The female is the sole controlled protagonist (can_be_controlled = true and
+## is set active by PlayerManager). The male is never controlled
+## (can_be_controlled = false); he follows the female to stay together and never
+## receives player input, so he cannot interact on his own.
+
+signal active_changed(is_active_now: bool)
+
+@export var move_speed: float = 4.0
+@export var acceleration: float = 10.0
+@export var can_be_controlled: bool = true
+@export var follow_speed_factor: float = 0.7
+@export var follow_stop_distance: float = 1.6
+@export var follow_start_distance: float = 2.6
+@export var character_id: StringName = &""
+
+var is_active: bool = false
+var follow_target: Vector3 = Vector3.INF
+
+var _horizontal_velocity := Vector3.ZERO
+var _model: Node3D
+
+func _ready() -> void:
+	_model = get_node_or_null("Model")
+	add_to_group("player")
+	# PlayerManager finds us via the "player" group and configures active/follow.
+
+## Called once by the manager when the character is (de)activated.
+func set_active(value: bool) -> void:
+	if is_active == value:
+		return
+	is_active = value
+	if not is_active:
+		_horizontal_velocity = Vector3.ZERO
+	active_changed.emit(is_active)
+
+func _physics_process(delta: float) -> void:
+	var wish := Vector3.ZERO
+
+	if is_active and can_be_controlled:
+		wish = _read_input_direction()
+	else:
+		wish = _read_follow_direction()
+
+	var target_velocity := wish * move_speed * (1.0 if can_be_controlled else follow_speed_factor)
+	_horizontal_velocity = _horizontal_velocity.move_toward(target_velocity, acceleration * delta)
+	velocity = Vector3(_horizontal_velocity.x, velocity.y, _horizontal_velocity.z)
+	_apply_gravity(delta)
+	move_and_slide()
+
+	if _horizontal_velocity.length() > 0.1 and _model:
+		var target_yaw := atan2(_horizontal_velocity.x, _horizontal_velocity.z)
+		_model.rotation.y = lerp_angle(_model.rotation.y, target_yaw, 12.0 * delta)
+
+## Direction (0..1) from player input, rotated to be relative to the camera so
+## the character moves the way the player expects regardless of camera angle.
+func _read_input_direction() -> Vector3:
+	var input_dir := Vector2(
+		Input.get_axis("move_left", "move_right"),
+		Input.get_axis("move_down", "move_up")
+	)
+	return _camera_relative(input_dir)
+
+## Direction toward the follow target (usually the active character position).
+func _read_follow_direction() -> Vector3:
+	if follow_target == Vector3.INF:
+		return Vector3.ZERO
+	var to := follow_target - global_position
+	to.y = 0.0
+	if to.length() < follow_stop_distance:
+		return Vector3.ZERO
+	if to.length() < follow_start_distance:
+		# Slow approach within the start/stop band for natural easing.
+		var band := follow_start_distance - follow_stop_distance
+		var t: float = clamp((to.length() - follow_stop_distance) / band, 0.0, 1.0)
+		return to.normalized() * t
+	return to.normalized()
+
+func _camera_relative(input_dir: Vector2) -> Vector3:
+	var cam := get_viewport().get_camera_3d()
+	var movement_basis := cam.global_transform.basis
+	var forward := -movement_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var right := movement_basis.x
+	right.y = 0.0
+	right = right.normalized()
+	var dir := forward * input_dir.y + right * input_dir.x
+	if dir.length() > 1.0:
+		dir = dir.normalized()
+	return dir
+
+func _apply_gravity(delta: float) -> void:
+	if not is_on_floor():
+		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity", 9.8) * delta
+	else:
+		velocity.y = -0.5
