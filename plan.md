@@ -137,24 +137,29 @@ as a starting/brief exploration area. **Not** an open world.
 
 ## 7. Camera
 
-**Third-person follow camera** (user decision 2026-08-31; replaces the original
-fixed-camera plan, but the Phase 2 fixed-camera system remains in the codebase
-for an easy revert).
+**Third-person follow camera** — the active game camera (`ThirdPersonCamera` at
+`scripts/camera/third_person_camera.gd`). This is the intended camera design. (An
+interim Phase 4 revision briefly switched the scene to the fixed-camera manager;
+that was a regression and was reverted.)
 
-- A smooth third-person camera orbits the female protagonist from behind.
-- Mouse movement rotates the orbit (yaw/pitch, clamped so the camera never goes
-  under the floor or straight over the top); the mouse wheel dollies in/out
-  (zoom), clamped to a min/max distance.
-- The camera pulls in automatically when geometry would clip it (raycast against
-  the blockout collision), so it never ends up inside a wall.
-- Player movement stays camera-relative (W/A/S/D relative to the on-screen
-  view), unchanged from Phases 1–2.
-- The camera always frames the female protagonist (the only controlled one);
-  the male stays within frame as her follower.
-- Keep the system simple.
+- Follows the female protagonist (the only controlled one) from **behind and
+  slightly above** (`look_height` 1.5, `initial_pitch` 0.35, default distance
+  4.5), keeping her the clear focus of the frame.
+- **Mouse-wheel zoom:** scroll up zooms in, scroll down zooms out (`distance`
+  clamped between `min_distance` and `max_distance`).
+- **Stable and controlled:** smooth `_process` lerp toward the desired position
+  (`blend_speed`), and a raycast (`_avoid_collision`) that pulls the camera in
+  front of geometry so it never clips through walls. The camera is not a fixed
+  room-survival-horror camera; it is not freely orbitable to the point of losing
+  the player.
+- Player movement is camera-relative (W/A/S/D relative to the on-screen view), so
+  turning the camera changes which way the keys push (left/right strafe relative
+  to view) while forward/back behave intuitively.
+- The male follower stays alongside the female and is framed with her.
 
-*Original plan (fixed-camera zones + transitions): superseded, code retained at
-`scripts/camera/fixed_camera_manager.gd` + `camera_zone.gd` for reversion.*
+The Phase 2 fixed-camera system (`fixed_camera_manager.gd`, `camera_zone.gd` and
+the Cottage's zones) remains in the repo but is **not** the active camera; it is
+kept intact for easy reversion if ever wanted.
 
 ---
 
@@ -322,9 +327,9 @@ project root/
 | 0     | Project Setup & Planning      | Initialize project, docs, structure, launch ✅ |
 | 1     | Basic Player Characters       | Two protagonists, movement, collision, female control + male follow, basic camera ✅ |
 | 2     | Fixed Camera System           | Camera zones, transitions, room framing ✅ |
-| 3     | Cottage Blockout              | Exterior + interior placeholder geometry |
-| 4     | PS1 Rendering Style           | Low-res, pixelated, fog, lighting, retro FX |
-| 5     | Cottage Environment           | Proper low-poly assets, props, exterior greenery |
+| 3     | Cottage Blockout              | Exterior + interior placeholder geometry ✅ |
+| 4     | PS1 Rendering Style           | Low-res, pixelated, fog, lighting, retro FX ✅ |
+| 5     | Cottage Environment           | Proper low-poly assets, props, exterior greenery ✅ |
 | 6     | Interaction System            | Detection, prompts, doors, cabinets, switches, inspection |
 | 7     | Cats                          | 3 cat models, placement, interaction, discovery |
 | 8     | Cat-Finding Gameplay          | Ginger/Tabby/Tuxedo discovery, broken light, audio clues, completion |
@@ -427,14 +432,52 @@ Phase 0 testing: project launches, config valid, no import errors.
   exterior: grass, dirt path, trees, fence, mailbox). 6 camera zones (exterior,
   living, kitchen, stairs, bedroom, bathroom) driving the existing Phase 2
   fixed-camera system with wall/floor/stairs collision. No cat gameplay or
-  interaction yet. Not started Phase 4.
-- **Camera decision (2026-08-31, after Phase 3):** the main camera is now a
-  **third-person follow/orbit camera** (`scripts/camera/third_person_camera.gd`
-  driving the `CameraSystem` in World.tscn) with mouse-wheel zoom — replacing
-  the fixed-camera manager as the active game camera by user request. Player
-  movement stays camera-relative. The fixed-camera system
-  (`fixed_camera_manager.gd`, `camera_zone.gd` and the Cottage's 6 zones) is
-  retained intact and unused, so reverting is a one-line scene swap.
+  interaction yet. **Staircase repaired 2026-09-01:** replaced the box ramps
+  with a smooth trimesh ramp surface so the male MC can walk up/down between the
+   ground floor and upstairs (`StairTest` 8 stages all pass). **Geometry fix
+   2026-09-01:** both key openings are now genuinely passable — the front door has
+   a clear rectangular opening (no blocking door leaf, only the frame) into a
+   foyer, the interior-divider back segments no longer cross the open stairwell,
+   and the ground-floor divider stops short of the door so the player walks around
+   it into either room; verified with the real player capsule (`move_and_slide`)
+   entering through the door and climbing the stairs.
+- **Phase 4** — PS1 Rendering Style: COMPLETE. 320×240 low-res viewport upscaled
+  3× to a 960×720 window with nearest-neighbor filtering (pixelated PS1 look),
+  PS1 color quantization (24 levels) + Bayer 4×4 ordered dithering + a gentle
+  saturation lift post-process shader attached to the camera, and adjusted
+  lighting. `Phase4Test` passes; all prior suites (Phase1/2/3, Stair, InputReal)
+  still pass. **Revised 2026-09-01 (playtest):** the distance fog was removed
+  entirely (cottage and exterior stay clearly visible at any distance); the
+  palette and lighting were brightened/warmed so walls, furniture and greenery
+  have more contrast and life while preserving the PS1 pixelation; and the
+  post-process shader was reworked to eliminate pixel shimmering (nearest
+  sampling of the low-res buffer + dithering aligned to the scene texels). The
+  active game camera remains the **third-person follow camera**
+  (`third_person_camera.gd`) with working mouse-wheel zoom — an interim change
+  that pointed the scene at the fixed-camera manager was a regression and was
+  reverted.
+- **Phase 5** — Cottage Environment: COMPLETE. Enriched the procedural cottage
+  with detailed low-poly PS1 props and richer exterior greenery, all kept
+  visual-only (no collision) so movement, collisions and the stairs are never
+  disturbed. Kitchen got a sink + upper cabinet + dining table & chairs + shelf;
+  the living room a coffee table, bookshelf with books, fireplace with mantle and
+  a rug; the bedroom a headboard/blanket/pillow, a wardrobe, a bed lamp and a rug;
+  the bathroom a mirror and towel rails. Fixes a latent Phase 3 issue: the
+  bedroom and bathroom furniture now sits on the CORRECT **upper floor** (was
+  accidentally placed at ground-floor height, so the upstairs rooms stood empty
+  and the living/kitchen were cluttered). The exterior was expanded with more
+  varied trees, shrubs, flower beds, a firewood stack, a stone well and a front
+  doormat. `Phase5Test` added and passing; all other suites (Phase1–4, Stair,
+  InputReal) still pass.
+- **Camera (2026-08-31 → final 2026-09-01):** the **third-person follow camera**
+  (`scripts/camera/third_person_camera.gd` driving `CameraSystem`) is the active
+  game camera — it follows the female from behind/above, stays stable, avoids
+  wall clipping, and zooms with the mouse wheel (wheel up = in, down = out).
+  During a Phase 4 revision the scene was briefly switched to the fixed-camera
+  manager; the user identified that as a regression (the intended design is
+  third-person), and it was reverted. The Phase 2 fixed-camera system
+  (`fixed_camera_manager.gd` + the Cottage's 6 `CameraZone`s) remains in the repo
+  but is not the active camera.
 - One female main character and one male main character are the core premise.
 - Cooperative exploration is the core premise.
 - Character approach: the female is the only playable character; the male

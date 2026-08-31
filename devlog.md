@@ -950,3 +950,419 @@ connected to the upper floor.
   wall-blocking) by automated tests. Phase 4 remains **awaiting instruction**.
 
 ---
+
+## 2026-09-01 — Phase 4: PS1 Rendering Style
+
+### Status
+Completed.
+
+### Request
+Apply a PlayStation-1 era rendering style to the game: low-resolution / pixelated
+output, nearest-neighbor upscaling, distance fog, color quantization + dithering
+post-process, and adjusted lighting.
+
+### What was implemented
+- **Low-resolution viewport (project.godot):** base viewport changed to
+  **320×240**, window override **960×720**, stretch mode `canvas_items` with
+  `keep` aspect. The 3D scene renders into the small buffer and upscales 3× to the
+  window, producing the chunky PS1 pixels.
+- **Nearest-neighbor filtering:** `rendering/textures/canvas_textures/
+  default_texture_filter=0` (nearest) project-wide; `texture_filter =
+  TEXTURE_FILTER_NEAREST` on the procedural materials in
+  `cottage_builder.gd::_mat` and `character_model.gd::_mat` so pixelated textures
+  stay crisp instead of becoming blurry mush on upscale.
+- **Distance fog (scenes/World.tscn WorldEnvironment):** fog enabled
+  (density 0.08), lighter sky/ambient so the fogged cottage reads as atmospheric
+  rather than murky.
+- **Post-process shader (`shaders/ps1_post_process.gdshader`):** a
+  `canvas_item` screen-space shader that applies **color quantization**
+  (`color_levels=24`) plus a **Bayer 4×4 ordered dithering** pass
+  (`dither_strength=0.06`) — reducing the visible color banding of quantization
+  with a classic PS1 ordered-dither pattern.
+- **Attachment (`scripts/camera/ps1_post_process.gd`):** at runtime this adds a
+  `CanvasLayer` + full-rect `ColorRect` with the shader as a child of the
+  third-person `Camera3D` (brother of the camera in `CameraSystem`), so the effect
+  follows the active camera.
+- **Lighting:** Sun energy 0.85, interior Omni energy 0.7 — tuned for the muted,
+  faded PS1 palette.
+
+### Files
+- `project.godot` — viewport/window/stretch + nearest-filter settings.
+- `scenes/World.tscn` — fog + lighting + PS1PostProcess node.
+- `shaders/ps1_post_process.gdshader` — quantization + dithering.
+- `scripts/camera/ps1_post_process.gd` — attaches the effect to the camera.
+- `scripts/world/cottage_builder.gd`, `scripts/player/character_model.gd` —
+  nearest texture filter on materials.
+- `tests/phase4_test.gd`, `tests/Phase4Test.tscn` — Phase 4 config checks.
+
+### Tests performed
+- New `Phase4Test` — **ALL PASS**: viewport is 320×240, window 960×720, stretch
+  `canvas_items`/`keep`, nearest default filter, fog enabled/density, post-process
+  CanvasLayer+ColorRect attached to the camera with shader + correct params
+  (color_levels=24, dither_strength=0.06).
+- Regression suites all pass: **Phase1Test, Phase2Test, Phase3Test, StairTest,
+  InputRealTest** — no regressions from the rendering changes.
+- `--import` clean, no script/parse errors.
+- **Windowed capture verified programmatically** (`tests/analyze.gd`, since this
+  model cannot view images): the 960×720 capture shows a **91.7% horizontal
+  adjacent-pixel duplication ratio** (confirms the nearest-neighbor 3× upscale of
+  the 320×240 buffer) and a **heavily compressed unique-color count** across the
+  sample (confirms color quantization). Both PS1 signatures present.
+
+### Known limitations / notes
+- `SCREEN_TEXTURE` in this Godot version must be declared `uniform sampler2D
+  SCREEN_TEXTURE : hint_screen_texture, filter_linear_mipmap;` and the shader
+  applied via a `canvas_item` (ColorRect on a CanvasLayer) rather than a screen
+  mesh — this is the working combination found on the gl_compatibility renderer.
+- Headless screenshots are impossible (the dummy renderer returns null for the
+  viewport image and hangs), so visual verification of the PS1 look requires the
+  windowed run; a programmatic capture analysis was used instead.
+- The post-process runs on the 3D view only; UI/game-flow overlays (Phase 10) can
+  decide whether they should also be quantized.
+
+### Current status
+- **Phase 4 complete.** The game now renders with the intended PS1 aesthetic:
+  low-res pixelated output, nearest-neighbor upscale, atmospheric fog, color
+  quantization + dithering, and tuned lighting. All prior suites still pass.
+- Next step: **Phase 5 — Cottage Environment** (proper low-poly assets / props /
+  exterior greenery).
+
+*Note: the fog, lighting/palette, camera and zoom described above were all
+revised after the Phase 4 windowed playtest — see the 2026-09-01 "Phase 4
+playtest revision" entry below. That revision supersedes the fog/camera details
+in this entry.*
+
+---
+
+## 2026-09-01 — Phase 4 playtest revision (fog removal, colors, fixed camera, zoom, stability)
+
+> **⚠ SUPERSEDED / CORRECTED later the same day.** The camera portion of this
+> entry was a **regression**. The instruction "(3) use the existing fixed-camera
+> system / NOT a third-person camera" was mis-applied: the game was switched to
+> the fixed-camera manager, which the user confirmed was **wrong** — the intended
+> design is the **third-person follow camera**. The fog removal and color
+> adjustments here remain valid, but the camera was restored to third-person and
+> the pixel shimmering was fixed in the final entry below ("Phase 4 regression:
+> camera restored to third-person, fog kept off, colors warmed, shimmer fixed").
+> Treat THIS entry's camera section as incorrect history.
+
+**Request:** a windowed Phase 4 playtest found several issues. The user required:
+(1) remove the atmospheric distance fog **completely** (do not weaken it, and do
+not replace it with another haze); (2) make colors less dull / more contrast
+while **keeping** the PS1 pixelation; (3) fix mouse-wheel zoom (wheel up = zoom
+in, down = zoom out) using the **existing fixed-camera system** (i.e. NOT a free
+third-person camera); (4) make the camera more stable (no jitter / rapid
+switching / clipping); (5) preserve all working systems (WASD, male follow,
+collision, cottage, stairs, fixed-camera architecture); do not start Phase 5.
+
+### 1) Fog removed completely
+- `scenes/World.tscn` — the `WorldEnvironment` environment now has
+  `fog_enabled = false`. The `fog_density`, `fog_light_color` and
+  `fog_sky_affect` lines were removed entirely (not just lowered). Nothing else
+  adds haze (no new fog/smog effect added). The cottage and surrounding greenery
+  are clearly visible at any distance.
+
+### 2) Colors less dull (more contrast / life), PS1 look preserved
+- `scenes/World.tscn` — brighter, warmer lighting: Sun `light_energy` 0.85 → 1.15
+  with a warm `light_color`; interior Omni 0.7 → 1.0 with a warm tint;
+  `ambient_light_energy` 1.25 with a warm light color; background sky color
+  brightened. Shadows remain readable (directional + omni shadows still on).
+- `scripts/world/cottage_builder.gd` — the blockout palette constants were
+  brightened/saturated but kept muted and cottage-core: grass `0.42,0.58,0.34`
+  (naturally green), walls warmed to cream `0.86,0.80,0.70`, exterior walls
+  `0.64,0.54,0.42`, wood floor `0.56,0.42,0.28`, trees `0.35,0.55,0.28`, etc. so
+  walls, furniture and greenery are easier to distinguish.
+- `shaders/ps1_post_process.gdshader` + `scripts/camera/ps1_post_process.gd` —
+  added a gentle `saturation` uniform (default 1.15) applied **before**
+  quantization so colors read richer/warmer without going neon and without
+  touching the pixelation/quantization/dithering.
+- Pixelation untouched: the 320×240 viewport, nearest-neighbor filtering and
+  quantization+dithering post-process are all still intact.
+
+### 3) Mouse-wheel camera zoom fixed (on the fixed-camera system)
+The game camera was reverted from the (briefly active) third-person follow
+camera back to the **fixed-camera system**, per the explicit requirement.
+- `scenes/World.tscn` — `CameraSystem` now uses `fixed_camera_manager.gd` (was
+  `third_person_camera.gd`) and wires `zones_root = ../Cottage/CameraZones` so it
+  discovers the Cottage's 6 `CameraZone`s.
+- `scripts/camera/fixed_camera_manager.gd` — robust mouse-wheel zoom:
+  **wheel up = zoom in, wheel down = zoom out**, driven by `_unhandled_input`
+  (works whenever the window has focus). Zoom is clamped to settable
+  `zoom_in_max`/`zoom_out_max`, applied each frame on top of whatever zone/fallback
+  view is active, never lets the lens pass the view target, and keeps the lens
+  clear of the protagonist (`min_player_clearance`).
+
+### 4) Camera stability
+- `scripts/camera/fixed_camera_manager.gd` — **stay-put hysteresis** in
+  `_find_zone()`: if the player is still inside the current zone it stays
+  selected, so the heavily-overlapping zones (exterior vs living/kitchen,
+  kitchen vs living) no longer cause the camera to rapidly flip between views at
+  shared boundaries. Zone switches are therefore intentional and predictable.
+- Added a **raycast clip guard** (`_avoid_collision`) that pulls the camera in
+  front of geometry when the ray from the view target to the camera would clip a
+  wall/furniture, preventing the lens from going through walls. Combined with the
+  zoom clamp this prevents the camera from clipping into the environment or the
+  player while preserving good room visibility.
+
+### 5) Preserved systems
+No changes to Female/Male character roles, the `player_controller.gd` movement,
+the male-follow logic, the player/collision system, the Cottage geometry, or the
+staircase. The former third-person camera script is retained in the repo but no
+longer wired into the World scene.
+
+### Tests performed
+- Updated `tests/phase2_test.gd` and `tests/phase3_test.gd` to validate the
+  fixed-camera system (zone discovery, per-zone framing, mouse-wheel zoom
+  direction, kitchen zone transition, male-follow, and a new **stability** check:
+  with a static player the camera drifts **0.0000** over the sampled window —
+  no jitter). Updated `tests/phase4_test.gd` to assert fog is **disabled** and
+  that the saturation parameter is attached.
+- **All suites pass:** Phase1Test, Phase2Test, Phase3Test, Phase4Test, StairTest
+  (8 stages incl. up/down stairs + male follow + camera framing), InputRealTest
+  (real W key moves the female). `--import` clean, no script/parse errors.
+
+### Known limitations / notes
+- The fixed-camera zone views, warped slightly by the collision clip guard, may
+  sit a little short of the raw authored view position in rooms where geometry
+  sits between the view and its target (by design, to avoid clipping). The user
+  should confirm the composed room views look right windowed.
+- Camera/room poses are verified headlessly (zone selected, framing distance,
+  no drift), but the actual on-screen composition is best confirmed in a windowed
+  run.
+
+### Current status
+- Phase 4 (PS1 rendering + this revision) is ready for the user's windowed
+  verification. All prior suites pass and no phase was started beyond Phase 4.
+- Next step remains **Phase 5 — Cottage Environment** (awaiting instruction).
+
+---
+
+## 2026-09-01 — Phase 4 regression: camera restored to third-person, fog kept off, colors warmed, shimmer fixed
+
+**Context (regression):** the interim "Phase 4 playtest revision" entry above
+switched the game camera from the third-person follow camera to the **fixed-camera
+manager**. The user confirmed this was **wrong** — the intended camera design is
+**third-person**: it follows the female MC, sits behind/above her, stays stable and
+controlled, is NOT a fixed room (survival-horror) camera, does not freely rotate
+away from her, keeps her the focus, and zooms with the mouse wheel. The fixed-camera
+switch was the camera regression.
+
+### What caused it
+- `scenes/World.tscn` had been pointed at `scripts/camera/fixed_camera_manager.gd`
+  (with `zones_root` to the Cottage's zones) instead of the working third-person
+  camera (`third_person_camera.gd`). The whole fixed-camera architecture was
+  loaded and driven, so the female was framed by fixed room views, not a
+  behind/above follow camera.
+- Two related problems made the interim state visibly worse: (a) the camera was a
+  fixed room camera (wrong design); (b) the PS1 post-process shader sampled the
+  low-res buffer with **linear** filtering (`filter_linear_mipmap`) and dithered
+  against a **fixed screen grid** (`FRAGCOORD`), which caused the image to
+  shimmer constantly as the camera/player moved.
+
+### What was restored / fixed
+1. **Camera restored to third-person (the intended design).**
+   - `scenes/World.tscn` → `CameraSystem` now uses `third_person_camera.gd` again
+     (git `HEAD` script, unmodified and intact). Removed the `zones_root` wire to
+     the fixed-camera manager. The `FixedCameraManager`/`camera_zone.gd` remain in
+     the repo but are no longer active.
+   - `scripts/camera/third_person_camera.gd` (restored, not rewritten) follows the
+     female from behind/above (`look_height` 1.5, `initial_pitch` 0.35, distance
+     4.5), blends smoothly (`blend_speed`), and pulls in via raycast so it never
+     clips through walls. Mouse wheel already implements **wheel up = zoom in,
+     wheel down = zoom out** (clamped `min_distance`/`max_distance`).
+   - The Phase2/Phase3 tests were reverted to their committed third-person
+     versions (framing distance, wheel zoom, follow-after-teleport), so they again
+     validate the third-person camera.
+2. **Fog kept removed.**
+   - `scenes/World.tscn` Environment still has `fog_enabled = false`; no fog/haze
+     of any kind.
+3. **Colors warmed / more readable (PS1 pixelation preserved).**
+   - Warm, non-flat lighting: `ambient_light_energy` 0.9 with a warm ambient color
+     (`1,0.95,0.86`), Sun `light_energy` 1.2 with warm color + shadows, interior
+     Omni 1.0 warm + shadows. Moderate ambient keeps directional shading (readable
+     shadows) instead of washing the scene flat/gray.
+   - Brightened/muted palette in `cottage_builder.gd`: grass `0.42,0.58,0.34`
+     (reads green), warm wood floor `0.56,0.42,0.28`, cream interior walls
+     `0.86,0.80,0.70`, etc., so walls/furniture/greenery are distinguishable.
+   - Post-process keeps a gentle `saturation` 1.15 applied before quantization.
+   - Pixelation untouched: 320×240 viewport → 960×720 nearest upscale,
+     quantization (24 levels) + Bayer dithering all intact.
+4. **Pixel shimmering fixed.**
+   - `shaders/ps1_post_process.gdshader`: `SCREEN_TEXTURE` sampling changed from
+     **linear** (`filter_linear_mipmap`) to **nearest** (`filter_nearest`) so the
+     low-res buffer is sampled crisply with no per-frame interpolation shimmer.
+   - Dithering is now aligned to the **low-res scene texels** (`SCREEN_UV *
+     textureSize(...)`) instead of a fixed screen grid, so the dither pattern moves
+     WITH the scene rather than the scene sliding under a static grid (the source
+     of constant shimmer). `dither_strength` default lowered 0.06 → 0.04.
+
+### Final camera design
+Third-person follow camera: behind/above the female MC, stable and controlled,
+room-aware only via wall-clip pull-in (NOT fixed room cameras), wheel zoom in/out,
+player is the focus; male follower framed alongside.
+
+### Final visual settings
+- Low-res PS1 render: 320×240 viewport, 960×720 window, `canvas_items`/`keep`,
+  nearest canvas filter.
+- Post-process: nearest-sampled low-res buffer, color levels 24, Bayer 4×4 dither
+  strength 0.04 (scene-space aligned), saturation 1.15.
+- No fog. Warm readable lighting + muted-but-colorful cottage palette.
+
+### Testing results
+- Reverted `tests/phase2_test.gd` and `tests/phase3_test.gd` to the committed
+  third-person versions (frames the female, wheel zoom in/out, follows after
+  teleport); `tests/phase4_test.gd` now asserts fog is **disabled** and that the
+  post-process is attached with color_levels=24 / dither=0.04 / saturation=1.15.
+- **All suites pass:** Phase1Test (WASD + male follow), Phase2Test (setup,
+  framing 4.5, zoom 4.5→5.0→4.0, follow, male readability), Phase3Test (zoom),
+  Phase4Test (low-res viewport, nearest filter, fog off, post-process attached),
+  StairTest (8 stages incl. up/down stairs + male follow + camera framing),
+  InputRealTest (real W key moves female). `--import` clean (shader compiles),
+  no script/parse errors.
+- Note: shimmer/no-jitter and the warm colors are best confirmed visually in a
+  windowed run; headless verification covers logic/configuration only.
+
+### Current status
+- Phase 4 restored to the intended third-person camera + fog-off + warm readable
+  PS1 look with crisp, stable pixels. All prior suites pass; no phase started
+  beyond Phase 4.
+- Next step was **Phase 5 — Cottage Environment** (now completed, see below).
+
+---
+
+## Phase 5 — Cottage Environment (2026-09-01)
+
+### Goal
+Furnish and enrich the cottage with proper low-poly PS1 assets (procedural, in
+code — no external asset files) and richer exterior greenery, per the user's
+"procedural enrichment" choice.
+
+### What changed (`scripts/world/cottage_builder.gd`)
+- **New `_build_props()`** — a visual-only (no collision) detail pass so movement,
+  collisions and the stairs are never disturbed:
+  - **Kitchen:** sink basin on the counter, upper cabinet row, a dining table +
+    two chairs, a wall shelf, and a potted plant.
+  - **Living room:** coffee table, bookshelf with colored book rows, a plant, a
+    fireplace with mantle, and a floor rug.
+  - **Bedroom:** headboard, blanket + pillow on the bed, a wardrobe, a bedside
+    lamp, and a rug.
+  - **Bathroom:** a wall mirror and towel rails.
+  - Plus potted plants in the open living/kitchen areas.
+- **Fixed a latent Phase 3 bug:** the bedroom and bathroom furniture was placed
+  at **ground-floor** height (y≈0.4–0.9) instead of the **upper floor** (y 3–6),
+  so the actual upstairs rooms stood empty while the living room/kitchen were
+  cluttered. Moved the bed, bedside, sink, toilet and bath up to the correct
+  upper-floor height (y≈3.4–3.9). The bedside was placed beside the bed (west,
+  away from the stair top) so the staircase descent stays unobstructed.
+- **Richer exterior:** more varied trees (`_tree_variant`), several shrubs
+  (`_shrub`), flower beds (`_flowerbed`, 3 colors), a firewood stack, a stone
+  well, and a front doormat — all visual-only.
+- New muted/warm accent palette constants (plants, wood, rugs, books, flowers,
+  stone, firewood) consistent with the PS1 look.
+
+### Design / regression notes
+- All Phase 5 geometry is **visual-only** (no new `StaticBody3D`), guaranteeing the
+  movement, collision and staircase tests are unaffected. Real collidable /
+  interactable furniture is deferred to Phase 6 (Interaction System).
+- An early pass put the bedside nightstand near the top of the stairs and
+  **StairTest stage 5 (descend) failed** (the female got trapped above the stair
+  top at y≈3). Moved the nightstand + lamp to the west side of the bed
+  (`-5.35, 3.55, -4.0`) and StairTest passed again.
+
+### Testing results
+- Added `tests/phase5_test.gd` + `tests/Phase5Test.tscn`: asserts prop mesh count
+  is enriched well above the blockout baseline, that bedroom/bathroom furniture
+  is on the upper floor, that exterior/low greenery exists, and that Living +
+  Bedroom floors + camera framing still hold (no regression).
+- **All suites pass:** Phase1, Phase2, Phase3, Phase4, **Phase5**, StairTest
+  (8 stages incl. up/down + male follow + framing), InputRealTest. `--import`
+  clean, no script/parse errors. `Phase5Test` reports 203 prop meshes.
+
+### Current status
+- Phase 5 complete: cottage in a rich low-poly PS1 state with detailed furniture
+  and exterior greenery; upstairs rooms now correctly furnished.
+- Visual confirmation of the added props is best done in a windowed run.
+  Next step is **Phase 6 — Interaction System** (detection, prompts, doors,
+  cabinets, switches, inspection). Awaiting instruction.
+
+### Post-playtest fixes (2026-09-01, same session)
+- **Cottage floor flickering** — root cause was z-fighting: the big exterior grass
+  slab and the interior ground-floor slab both had their top face at exactly
+  y=0.1, giving two coplanar surfaces over the whole interior that the low-res
+  PS1 post-process made visibly shimmer. Lowered the grass top to ~0.0 (well below
+  the floor top), lowered the path to rest on it, and re-seated the flat rugs /
+  inner doormat so they sit cleanly ON their floors instead of buried/coplanar
+  (living rug y=0.115, bedroom rug y=3.015, inner doormat y=0.12). No coplanar
+  floor surfaces remain.
+- **One entrance door** — the walls are solid except the single front-door
+  opening (x -1.2..1.2 in the south wall); no other exterior openings exist. Added
+  `_build_entrance()` so the single entrance reads clearly: a wooden door left ajar
+  (right-hinged, swinging inward, leaving the left passage open), jambs + lintel,
+  a metal handle, an inner doormat and an outer stone doorstep. All visual-only so
+  the player still passes through; interactive doors are Phase 6.
+- **All suites still pass** (Phase1–5, Stair incl. 8 stages, InputReal);
+  `--import` clean.
+
+---
+
+## 2026-09-01 — Geometry fix: entrance doorway & staircase made genuinely open
+
+**Situation:** A bug report said a wall was blocking the cottage entrance and a
+vertical white wall crossed the open staircase/stairwell, so neither opening was a
+real passable opening. Constraint: do NOT redesign the game or change the
+third-person camera / movement / lighting / PS1 style — only fix the geometry so
+both openings are genuine open passages, keeping walls where they logically belong.
+
+### Diagnosis
+Wrote a temporary diagnostic (`tests/diagnose_geo.gd` + `DiagGeo.tscn`) that dumps
+every collision/visual box overlapping the entrance and stairwell regions to pin
+down exactly which geometry occupied each opening.
+
+- **Entrance blocker:** the wooden **door leaf** + handle in `_build_entrance()`
+  (a `StaticBody3D` panel at `(0.55, 1.4, 5.2)`, size `(1.05, 2.35, 0.1)`) sat
+  directly in the front-door opening, physically blocking it.
+- **Stairwell blocker:** the **interior divider BACK segments** (white `C_WALL`
+  boxes at `x=-0.1`, `z -2.0..0.5`) ran through the center of the open stairwell
+  at its foot/top on both floors, plus the front-ground divider at `x=-0.1`
+  spanning `z 1.7..5.2` straddled the centered front door (dead-center of the
+  doorway), blocking entry from outside.
+
+### The fix (`scripts/world/cottage_builder.gd`)
+1. **Entrance** — `_build_entrance()` keeps only the wooden door **frame** (two
+   jambs at `x=±1.15` + top lintel) and the outer doorstep, so the doorway reads as
+   a proper single rectangular opening with **nothing occupying it**. The swingable
+   door leaf + handle were removed (interactive doors are Phase 6 anyway).
+2. **Interior walls** — `_build_interior_walls()`:
+   - **Back segments removed** (both floors): no wall crosses the stairwell shaft;
+     the foot and top of the staircase are unobstructed.
+   - **Ground-floor front segment shortened** from `z 1.7..5.2` to `z 1.6..4.4` so
+     it no longer straddles the centered front-door opening — the door now opens
+     into a clear **foyer** and the player walks *around* the divider into the
+     living (left) or kitchen (right) room instead of walking straight into a wall.
+   - The upper-floor front divider is unchanged (the upstairs has no exterior door
+     and doesn't touch any opening).
+
+### Verification
+- Traversal probe (`tests/verify_geo.gd` + `VerifyGeo.tscn`) drives the **real**
+  female capsule with the same `move_and_slide()` + gravity movement the player
+  uses:
+  - **PATH A** outside → front door → foyer → around the divider into the living
+    room: **PASS** (was blocked before; now the door is a genuine open passage).
+  - **PATH B** ground floor → staircase → upstairs: **PASS** (stairwell clear at
+    foot/top).
+- All 7 permanent suites pass: **Phase1Test, Phase2Test, Phase3Test, Phase4Test,
+  Phase5Test, StairTest (8 stages incl. up/down + male follow + wall-block),
+  InputRealTest**. `--import` clean.
+- Temporary diagnostic/verify files (`diagnose_geo.gd`, `DiagGeo.tscn`,
+  `traverse_dummy.gd`, `verify_geo.gd`, `VerifyGeo.tscn`) were removed after
+  verification.
+
+### Notes
+- No gameplay, camera, movement, lighting, pixel-style or player changes were made
+  — pure geometry correction.
+- A stuck test harness issue (typed `Node` property access + a target that steered
+  straight at the outer wall instead of through the door) was a test artifact, not
+  a geometry problem; resolved by using the real player's `move_and_slide()`
+  movement and a doorway waypoint.
+
+---

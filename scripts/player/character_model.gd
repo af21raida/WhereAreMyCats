@@ -80,4 +80,5 @@ func _mat(color: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color
 	m.roughness = 1.0
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	return m

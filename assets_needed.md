@@ -25,12 +25,12 @@ Updated each phase.
 | Asset | Type | Location | Purpose | Status | Placeholder? | Final required? |
 |-------|------|----------|---------|--------|--------------|-----------------|
 | Cottage exterior | 3D | `assets/environment/` | Building shell | done (Phase 3 blockout) | yes (procedural blockout boxes) | yes |
-| Kitchen props | 3D | `assets/furniture/` | Cabinets, counter, sink, fridge, dining | done (blockout) | yes | yes |
-| Living room props | 3D | `assets/furniture/` | Sofa, table, chairs, books, plants | done (blockout) | yes | yes |
-| Bedroom props | 3D | `assets/furniture/` | Bed, bedside, decor | done (blockout) | yes | yes |
-| Bathroom props | 3D | `assets/furniture/` | Sink, toilet, tub/shower | done (blockout) | yes | yes |
+| Kitchen props | 3D | `assets/furniture/` | Cabinets, counter, sink, fridge, dining | done (blockout + Phase 5 props: sink, cabinets, table & chairs, shelf, plant) | yes | yes |
+| Living room props | 3D | `assets/furniture/` | Sofa, table, chairs, books, plants | done (blockout + Phase 5 props: coffee table, bookshelf, fireplace, plant, rug) | yes | yes |
+| Bedroom props | 3D | `assets/furniture/` | Bed, bedside, decor | done (Phase 5 moved to upper floor + headboard/blanket/wardrobe/lamp/rug) | yes | yes |
+| Bathroom props | 3D | `assets/furniture/` | Sink, toilet, tub/shower | done (Phase 5 moved to upper floor + mirror/towels) | yes | yes |
 | Stairs | 3D | `assets/environment/` | Floor connector | done (blockout) | yes | yes |
-| Exterior scenery | 3D | `assets/environment/` | Grass, trees, bushes, flowers, path, fence, mailbox, firewood | done (blockout) | yes | yes |
+| Exterior scenery | 3D | `assets/environment/` | Grass, trees, bushes, flowers, path, fence, mailbox, firewood | done (Phase 3 + Phase 5 greenery: varied trees, shrubs, flower beds, firewood, well, doormat) | yes | yes |
 
 ---
 

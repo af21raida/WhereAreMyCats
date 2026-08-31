@@ -21,8 +21,12 @@ PlayerManager="*res://scripts/player/player_manager.gd"
 
 [display]
 
+window/size/viewport_width=320
+window/size/viewport_height=240
+window/size/window_width_override=960
+window/size/window_height_override=720
 window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
+window/stretch/aspect="keep"
 
 [input]
 
@@ -73,7 +77,8 @@ interact={
 
 [rendering]
 
-renderer/rendering_method="gl_compatibility"
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/canvas_textures/default_texture_filter=0
+textures/default_filters/texture_mipmap_bias=-0.5
