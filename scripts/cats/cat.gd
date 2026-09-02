@@ -41,10 +41,6 @@ signal discovered(cat: Object)
 ## Spacing this cat keeps behind the companion it trails (set per cat by the
 ## chain so followers never share the same target position).
 @export var follow_gap: float = 1.0
-## After this many seconds stalled far from the target (longer than the side-step
-## in _apply_stuck_escape), the cat lays down a bypass waypoint and walks around
-## the block — a real path recalc for walls/closed doors/furniture.
-@export var stuck_recalc_time: float = 2.2
 
 # PS1 palette for this cat.
 @export var fur_color := Color(0.7, 0.45, 0.28)
@@ -61,16 +57,10 @@ var _collision: CollisionShape3D
 var _cache: Dictionary = {}
 var _horizontal_velocity := Vector3.ZERO
 var _last_follow_dir := Vector3.ZERO
-# Stuck-escape state (copied from the male follower).
-var _stuck_time := 0.0
-var _stuck_turn := 1.0
-var _last_pos := Vector3.INF
-# Path-recalc (detour) state: a concrete bypass waypoint used after prolonged
-# stalls, so the cat finds its way around walls/doors instead of sticking forever.
-var _detour := Vector3.INF
-var _detour_side := 1.0
-var _detour_start_dist := 0.0
-var _detour_no_progress := 0.0
+# Navigation-path follower (Phase 7 fix): the cat walks a real nav path over the
+# baked cottage mesh instead of a straight line at its leader, so it routes around
+# walls/the stairwell pit/the cross-wall and up the staircase like the male.
+var _nav_follower := NavPathFollower.new()
 
 func _ready() -> void:
 	add_to_group("cat")
@@ -125,9 +115,7 @@ func _physics_process(delta: float) -> void:
 	_check_proximity_reveal()
 	if not following:
 		return
-	var wish := _read_follow_direction()
-	wish = _apply_stuck_escape(delta, wish)
-	wish = _apply_detour(delta, wish)
+	var wish := _compute_follow_wish(delta)
 	wish = _apply_separation(wish)
 	var target_velocity := wish * move_speed * follow_speed_factor
 	_horizontal_velocity = _horizontal_velocity.move_toward(target_velocity, 10.0 * delta)
@@ -145,109 +133,17 @@ func _check_proximity_reveal() -> void:
 	if global_position.distance_to(pm.active_player.global_position) <= proximity_radius:
 		reveal()
 
-func _read_follow_direction() -> Vector3:
+## Phase 7 fix: the cat's steering wish, produced by walking a real navigation
+## path (ArroundObstacles/UpTheStairs) to its leader instead of a straight line
+## that tried to cross walls, the stairwell pit or the cross-wall. Delegates to the
+## shared NavPathFollower; falls back to direct steering until the nav mesh is
+## ready.
+func _compute_follow_wish(delta: float) -> Vector3:
 	if follow_target == Vector3.INF:
 		return Vector3.ZERO
-	var to := follow_target - global_position
-	var flat := Vector3(to.x, 0.0, to.z)
-	# "Above or below" flag: while the target sits meaningfully ABOVE the cat (e.g.
-	# halfway up the stairs while the leader is on the landing), arrival/easing must
-	# NOT engage on the FLAT gap alone or the cat stops mid-ramp with its nose
-	# under the upper floor. It only considers itself to have arrived once it is
-	# close in XZ AND level with the target.
-	var need_up: bool = to.y > 0.05
-	if flat.length() < follow_stop_distance and not need_up:
-		return Vector3.ZERO
-	if flat.length() < 0.05 and not need_up:
-		return _last_follow_dir
-	_last_follow_dir = flat.normalized()
-	if not need_up and flat.length() < follow_start_distance:
-		var band := follow_start_distance - follow_stop_distance
-		var t: float = clamp((flat.length() - follow_stop_distance) / band, 0.0, 1.0)
-		return _last_follow_dir * t
-	return _last_follow_dir
-
-## Same obstacle escape as the male follower: if the cat is far from its target
-## but has made no progress for a while, it side-steps to slide around a block.
-func _apply_stuck_escape(delta: float, wish: Vector3) -> Vector3:
-	if wish == Vector3.ZERO or follow_target == Vector3.INF:
-		_stuck_time = 0.0
-		return wish
-	var moved := 0.0
-	if _last_pos != Vector3.INF:
-		moved = global_position.distance_to(_last_pos)
-	_last_pos = global_position
-	var dist := (follow_target - global_position).length()
-	if dist <= follow_start_distance:
-		_stuck_time = 0.0
-		return wish
-	if moved < 0.02:
-		_stuck_time += delta
-	else:
-		_stuck_time = maxf(0.0, _stuck_time - delta)
-	if _stuck_time < 0.6:
-		return wish
-	var perp := Vector3(-wish.z, 0.0, wish.x) * _stuck_turn
-	if _stuck_time > 1.2:
-		_stuck_turn = -_stuck_turn
-		_stuck_time = 0.0
-	return (wish.normalized() + perp * 0.9).normalized()
-
-## Recalculated path: once the cat has been stalled for `stuck_recalc_time`
-## seconds it stops hoping the side-step fixes it and actually walks to a concrete
-## bypass waypoint off to one side; when that ends (or the direct line becomes
-## clear again) it resumes steering toward its leader. This is the "recover after
-## several seconds, recalc the path" behaviour requested on top of the side-step.
-func _apply_detour(delta: float, wish: Vector3) -> Vector3:
-	if follow_target == Vector3.INF:
-		return wish
-	var dist := follow_target.distance_to(global_position)
-	if _detour == Vector3.INF:
-		if _stuck_time >= stuck_recalc_time and dist > follow_start_distance:
-			_begin_detour(dist)
-		else:
-			_detour_no_progress = 0.0
-		return wish
-	# Active bypass: if we are clearly closer to the target than when we started,
-	# the block is behind us — go straight to the leader again.
-	if dist < _detour_start_dist - 0.3:
-		_detour = Vector3.INF
-		_stuck_time = 0.0
-		_stuck_turn = -_stuck_turn
-		return wish
-	var to_wp := _detour - global_position
-	to_wp.y = 0.0
-	if to_wp.length() < 0.5:
-		_detour = Vector3.INF
-		_stuck_time = 0.0
-		return wish
-	var moved := 0.0
-	if _last_pos != Vector3.INF:
-		moved = global_position.distance_to(_last_pos)
-	if moved > 0.05:
-		_detour_no_progress = 0.0
-	else:
-		_detour_no_progress += delta
-	if _detour_no_progress > 1.5:
-		_begin_detour(dist)   # the waypoint itself is blocked: flip side, retry
-		return wish
-	var target_dir := wish
-	if target_dir == Vector3.ZERO:
-		target_dir = (follow_target - global_position)
-		target_dir.y = 0.0
-		target_dir = target_dir.normalized() if target_dir.length() > 0.01 else Vector3.ZERO
-	return (to_wp.normalized() + target_dir * 0.35).normalized()
-
-func _begin_detour(dist: float) -> void:
-	_detour_side = -_detour_side
-	_detour_start_dist = dist
-	var away := global_position - follow_target
-	away.y = 0.0
-	away = away.normalized() if away.length() > 0.01 else Vector3(0.0, 0.0, -1.0)
-	var perp := Vector3(-away.z, 0.0, away.x) * _detour_side
-	_detour = global_position + (away + perp).normalized() * clampf(follow_gap + 0.9, 1.3, 2.5)
-	_detour_no_progress = 0.0
-	_stuck_time = 0.7   # don't instantly re-trigger while walking the waypoint
+	_nav_follower.follow_target = follow_target
+	_nav_follower.stop_distance = follow_stop_distance
+	return _nav_follower.wish(global_position, delta)
 
 ## Keeps followers from stacking: the cats never collide with each other or with
 ## the players (mask = world only), so without this they could merge. Blends a

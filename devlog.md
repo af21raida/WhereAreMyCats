@@ -1932,3 +1932,77 @@ regression suite is green.
   and UI around finding all three cats.
 
 ---
+
+## Phase 7 follow fix: male follower + discovered cats now walk the baked nav mesh
+
+**Date:** 2026-09-03. Closes the Phase 7 requirement that the male follower and
+each discovered cat reliably follow the female through the cottage — including up
+down the 42° staircase ramp and through the open bedroom door.
+
+### Problem
+The follower AI steered **straight at its leader** (`_apply_stuck_escape` /
+`_apply_detour`), so it could not route around the cross-wall, the open stairwell
+pit, or the pit railings, and it never reached the upstairs reliably. The fix
+replace that crude direct steering with a real `NavigationRegion3D` path.
+
+Building the nav mesh exposed two Recast limitations, both confirmed in isolated
+probes before changing anything:
+
+1. **The 42° ramp is not walkable.** Recast refuses to bake the real ramp as a
+   walkable slope (thin sheet AND solid wedge both yield 0 walkable vertices;
+   `agent_max_slope` 50/75, `cell_height` 0.05–0.25 and `agent_max_climb` 0.5–4.0
+   all fail; only ~10–20° slopes bake). So the baked mesh had **no
+   ground-to-upstairs connection** and `map_get_path` routed followers sideways
+   around the landing instead of up.
+2. **The 1.3 m door gaps did not connect.** At `cell_size 0.25`, Recast produced a
+   landing and a bedroom that were *separate, disconnected* nav regions; paths
+   clamped to `z=0.5` south of the wall and never crossed into the rooms.
+
+Also a steering bug: the arrival check stopped a follower the moment it was within
+`stop_distance` in 3D of its leader-anchor — but the male's anchor Y-snaps onto
+the ramp slope, so a cat halted mid-slope at `y≈2.3` instead of cresting.
+
+### Fix
+All in the nav layer; **no** geometry change, no teleports, no collision
+disabling, no walking through walls, no speed increase, no snapping to the female.
+
+- **Nav-only staircase steps** (`_build_nav_steps()` in `cottage_builder.gd`):
+  15 invisible flat `StaticBody3D` treads up the shaft that faithfully follow the
+  real ramp footprint (top surfaces at the ramp's exact height, `x ±1.05`, `z
+  −2.0..−5.2`). Flat treads bake as 0-deg walkable and each rise (2.9/15 ≈ 0.19 m)
+  is under `agent_max_climb 0.5`, so they connect into a real, collision-driven
+  climb route. They sit on a dedicated `NAV_STEP_LAYER` (= physics layer 4)
+  included only in `geometry_collision_mask`, **never** in any character's
+  `collision_mask`, so gameplay physics is untouched.
+- **Arrival fix** (`nav_path_follower.gd`): stop only when the leader's **XZ** is
+  within `stop_distance` AND the follower is roughly level (`|Δy| < 0.2`). A
+  follower now crests the ramp before stopping, and never freezes while the leader
+  is on another floor (Stage 9 still passes).
+- **Doorway connectivity** (`cell_size 0.25 → 0.125`): fine enough for Recast to
+  carve a traversable corridor through each 1.3 m door gap, so the landing and the
+  two rooms are one connected nav graph (paths now cross `z=1.2`).
+- **Phase 1 test robustness** (`phase1_test.gd`): now asserts the male closes its
+  **initial spawn gap** and ends within `follow_stop_distance`, instead of
+  requiring motion inside a fixed 200→300 frame window. The nav follower converges
+  faster than the old stuck/detour steering, so that window now falls entirely
+  after convergence; the new assertion is timing-robust and still proves the male
+  genuinely follows and catches up (closed 2.5 → 1.2, stop 1.6).
+
+### Files changed
+- `scripts/world/cottage_builder.gd` — `NAV_STEP_LAYER` constant, `_build_nav_steps()`
+  called from `_build_navigation()` with `geometry_collision_mask = 1 | NAV_STEP_LAYER`,
+  `cell_size 0.125`.
+- `scripts/nav/nav_path_follower.gd` — XZ + level arrival check.
+- `scripts/cats/cat.gd`, `scripts/player/player_controller.gd` — nav wiring (done
+  earlier this session; net fewer lines after removing stuck/detour steering).
+- `scripts/nav/follower_nav.gd`, `scripts/nav/nav_path_follower.gd`,
+  `scripts/nav/follower_nav.gd` autoload in `project.godot` (new nav plumbing).
+- `tests/phase1_test.gd` — timing-robust follow assertion.
+
+### Tests performed
+- `StairTest` (11 stages + STAGE 10 PHASE A cats climb `y>2.5` — max measured 2.71 —
+  and PHASE B cat threads the open bedroom door `z>1.2`): **ALL PASS**.
+- Full regression **Phase1Test … Phase7Test, InputRealTest, StairTest**: **ALL PASS**
+  (exit 0 each); `--import` clean; no SCRIPT/PARSE errors.
+
+---

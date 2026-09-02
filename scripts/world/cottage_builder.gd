@@ -15,6 +15,11 @@ const UH := 6.0
 const EX := 6.0
 const Z_BACK := -6.0
 const Z_FRONT := 5.0
+# Physics layer for the invisible nav-only staircase steps (see _build_nav_steps).
+# They are baked into the navigation mesh so followers can walk UP the real 42-deg
+# ramp (which Godot's Recast refuses to bake as a walkable slope), but they sit on a
+# layer NO character collides with, so they never affect gameplay physics.
+const NAV_STEP_LAYER := 4
 
 const C_GRASS := Color(0.42, 0.58, 0.34)
 const C_DIRT := Color(0.56, 0.45, 0.35)
@@ -78,6 +83,7 @@ func _ready() -> void:
 	_build_props()
 	_build_interactions()
 	_build_cats()
+	_build_navigation()
 	_build_exterior()
 	_build_roof()
 	_build_zones()
@@ -282,6 +288,39 @@ func _build_ramp_surface(x0: float, x1: float, run: float) -> void:
 	mi.mesh = mesh
 	mi.set_surface_override_material(0, _mat(C_FLOOR))
 	sb.add_child(mi)
+
+## Nav-only staircase steps. Godot 4.7's Recast (bake from StaticBody3D colliders)
+## refuses to mark the game's real 42-deg ramp as a walkable slope (verified in
+## isolation: agent_max_slope/climb/cell_height make no difference), so the baked
+## nav mesh has NO ground-to-upstairs connection and map_get_path routes followers
+## down one side / around the pit instead of up. Fix (user-approved): lay down
+## invisible flat step platforms up the shaft that faithfully follow the real ramp
+## footprint. Each tread is a flat box, so Recast bakes it as walkable (0-deg) and
+## consecutive treads (rise 2.9/N < agent_max_climb 0.5) connect, giving a real,
+## collision-driven "climb" route into the nav mesh. The steps are on NAV_STEP_LAYER
+## (not layer 1), so no player/cat ever collides with them — gameplay is unchanged
+## and they only exist for navigation.
+func _build_nav_steps() -> void:
+	const N := 15
+	var foot_z := -2.0
+	var crest_z := -5.2
+	var rise_total := UF - 0.1          # 2.9
+	var run := crest_z - foot_z         # -3.2 (negative: ramp runs -z)
+	var t_depth := absf(run) / N
+	var half_w := 1.05                  # within the shaft (x -1.2..1.2), clear of its walls
+	for i in range(N):
+		var frac := (float(i) + 0.5) / float(N)
+		var y: float = 0.1 + rise_total * frac
+		var z: float = foot_z + run * frac
+		var sb := StaticBody3D.new()
+		sb.position = Vector3(0.0, y - 0.35, z)   # top of box = y (walkable tread surface)
+		sb.collision_layer = NAV_STEP_LAYER
+		add_child(sb)
+		var cs := CollisionShape3D.new()
+		var shp := BoxShape3D.new()
+		shp.size = Vector3(half_w * 2.0, 0.7, t_depth)
+		cs.shape = shp
+		sb.add_child(cs)
 
 ## Upstairs (Phase 7 requirement, layout correction): one shared landing and two
 ## rooms stood side-by-side AHEAD of the player at the top of the stairs.
@@ -553,6 +592,74 @@ func _build_cats() -> void:
 func _on_kitchen_cab_used(_cab: InteractableCabinet) -> void:
 	if _kitchen_cab != null and _kitchen_cab.is_open and _ginger != null:
 		_ginger.reveal()
+
+## Navigation. Bakes ONE NavigationRegion3D (group "nav_region") at runtime from
+## the cottage's own StaticBody3D collision geometry (Recast carving from
+## colliders — see probes in tests/nav_probe.gd). This is the Phase 7 fix:
+## instead of the crude direct-steering follower AI (which could not route around
+## walls, the open stairwell pit, the stair railing, the cross-wall or the
+## ground-floor divider), the male and the cats now path over this mesh, so they
+## go AROUND obstacles and UP the staircase to reach the female.
+##
+## Baking from colliders (PARSED_GEOMETRY_STATIC_COLLIDERS + geometry_collision_mask
+## = 1) gives:
+##   - walkable floor tops at both levels (ground y 0.1, upstairs y 3) with the
+##     multi-floor separation handled by Recast (no phantom link through the slab
+##     that overhangs the ground floor);
+##   - the open stairwell pit and walls/furniture carved out (followers never path
+##     across the pit or through a wall);
+##   - the fixed door gaps in the cross-wall left open so followers can thread the
+##     bedroom/bathroom doors;
+##   - the sloped staircase ramp kept as a walkable connector between floors.
+## Every Interactable's moving panel (door/cabinet) is a StaticBody3D under an
+## Area3D; those are EXCLUDED (their collision_layer is temporarily cleared around
+## the synchronous parse) so a closed door never permanently blocks the nav gap —
+## the nav gap stays open and physical collisions enforce the actual door.
+func _build_navigation() -> void:
+	var nav_region := NavigationRegion3D.new()
+	nav_region.name = "NavigationRegion"
+	nav_region.add_to_group("nav_region")
+	add_child(nav_region)
+
+	var nav_mesh := NavigationMesh.new()
+	nav_mesh.agent_radius = 0.3          # widest follower (male capsule radius)
+	nav_mesh.agent_height = 1.7
+	nav_mesh.cell_size = 0.125           # fine enough for Recast to connect the 1.3m door gaps
+	nav_mesh.cell_height = 0.25
+	nav_mesh.agent_max_climb = 0.5
+	nav_mesh.agent_max_slope = 50.0
+	nav_mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	nav_mesh.geometry_collision_mask = 1 | NAV_STEP_LAYER
+
+	# Lay down the nav-only staircase steps so the (otherwise non-walkable) 42-deg
+	# ramp becomes a real climb route in the nav mesh. Steps share the ramp footprint
+	# on NAV_STEP_LAYER (included in the bake mask above but never collided with).
+	_build_nav_steps()
+
+	# Exclude Interactable (Area3D) panels — door/cabinet leaves — from the bake so
+	# closed doors do not permanently block nav gaps. Their physics collision_layer
+	# is restored immediately after the (synchronous) parse; the bake itself uses
+	# the already-captured source geometry.
+	var excluded: Array = []
+	for child in get_tree().get_nodes_in_group(&"interactable"):
+		if child is Area3D:
+			for d in child.find_children("*", "StaticBody3D", true, false):
+				excluded.append(d)
+	var saved: Dictionary = {}
+	for sb in excluded:
+		if sb is StaticBody3D:
+			saved[sb] = sb.collision_layer
+			sb.collision_layer = 0
+
+	var src := NavigationMeshSourceGeometryData3D.new()
+	NavigationServer3D.parse_source_geometry_data(nav_mesh, src, self)
+
+	for sb in saved:
+		(sb as StaticBody3D).collision_layer = saved[sb]
+
+	nav_region.navigation_mesh = nav_mesh
+	NavigationServer3D.bake_from_source_geometry_data(nav_mesh, src)
+
 
 ## Small countryside around the cottage: a dirt path to the door, a few trees,
 ## bushes, a fence around the yard, and a mailbox.

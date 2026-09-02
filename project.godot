@@ -20,6 +20,7 @@ config/icon="res://icon.svg"
 PlayerManager="*res://scripts/player/player_manager.gd"
 InteractionManager="*res://scripts/interaction/interaction_manager.gd"
 CatManager="*res://scripts/cats/cat_manager.gd"
+FollowerNav="*res://scripts/nav/follower_nav.gd"
 
 [display]
 

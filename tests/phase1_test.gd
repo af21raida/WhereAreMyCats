@@ -23,6 +23,7 @@ func _process(_delta: float) -> void:
 		_check_spawn(pm)
 	if _frame == 20:
 		_check_active(pm)
+		_record_start_dist(pm)
 		# Apply steering input on the controlled (female) player.
 		Input.action_press("move_right")
 		Input.action_press("move_up")
@@ -30,8 +31,6 @@ func _process(_delta: float) -> void:
 		_check_movement(pm)
 		Input.action_release("move_right")
 		Input.action_release("move_up")
-	if _frame == 200:
-		_record_follow_dist(pm)
 	if _frame == 300:
 		_check_follow_converged(pm)
 	if _frame >= 302 and not _reported:
@@ -107,38 +106,43 @@ func _check_follow(pm) -> void:
 	else:
 		_failures.append("Male too far from female (%.1f)" % dist)
 
-var _follow_dist_at_200 := 0.0
-var _follow_dist_set := false
+var _start_dist := -1.0
+var _start_dist_set := false
 
-func _record_follow_dist(pm) -> void:
+## Records the male->female gap at spawn (frame 20), before the female nudges.
+func _record_start_dist(_pm) -> void:
 	var male: Node3D = null
 	var female: Node3D = null
-	for p in pm.players:
+	for p in get_tree().root.get_node_or_null("PlayerManager").players:
 		if p.character_id == &"male":
 			male = p
 		if p.character_id == &"female":
 			female = p
 	if male != null and female != null:
-		_follow_dist_at_200 = male.global_position.distance_to(female.global_position)
-		_follow_dist_set = true
+		_start_dist = male.global_position.distance_to(female.global_position)
+		_start_dist_set = true
 
-func _check_follow_converged(pm) -> void:
+func _check_follow_converged(_pm) -> void:
 	var male: Node3D = null
 	var female: Node3D = null
-	for p in pm.players:
+	for p in get_tree().root.get_node_or_null("PlayerManager").players:
 		if p.character_id == &"male":
 			male = p
 		if p.character_id == &"female":
 			female = p
-	if male == null or female == null or not _follow_dist_set:
+	if male == null or female == null or not _start_dist_set:
 		return
 	var now := male.global_position.distance_to(female.global_position)
-	# The male must be actively following: its gap to the female is shrinking
-	# toward the 1.6 stop distance from its starting 10 units apart.
-	if now < _follow_dist_at_200 and now < 8.0:
-		print("PASS follow: male closing gap %.1f -> %.1f (actively following)" % [_follow_dist_at_200, now])
+	# The male must have genuinely closed its spawn gap and ended up within the
+	# female's follow-stop range (proving it follows, catches up and does not fly
+	# away). This is timing-robust: with nav steering the male converges to the
+	# stop distance well before any fixed sample window, so we compare against the
+	# initial spawn gap rather than requiring motion inside a now-obsolete window.
+	var stop: float = male.follow_stop_distance
+	if now < _start_dist and now <= stop + 0.5:
+		print("PASS follow: male closed gap %.1f -> %.1f (within stop %.1f)" % [_start_dist, now, stop])
 	else:
-		_failures.append("Male not converging toward female (%.1f -> %.1f)" % [_follow_dist_at_200, now])
+		_failures.append("Male not converging toward female (%.1f -> %.1f, stop %.1f)" % [_start_dist, now, stop])
 
 func _frames(n: int) -> void:
 	for i in n:
