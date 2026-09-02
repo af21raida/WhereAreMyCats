@@ -32,11 +32,11 @@ func _run_checks() -> void:
 		print("PASS prop mesh count = %d (enriched above blockout baseline)" % mesh_count)
 
 	# Bedroom / bathroom furniture should be on the UPPER floor (y ~3), not ground.
-	_check_upper_furniture_y("bed", Vector3(-4.4, 3.9, -4.0), 3.0)
-	_check_upper_furniture_y("bedside", Vector3(-5.35, 3.55, -4.0), 3.0)
-	_check_upper_furniture_y("bath-sink", Vector3(1.8, 3.55, -5.3), 3.0)
-	_check_upper_furniture_y("toilet", Vector3(1.8, 3.4, -4.2), 3.0)
-	_check_upper_furniture_y("bath", Vector3(5.2, 3.7, -5.2), 3.0)
+	_check_upper_furniture_y("bed", Vector3(-3.3, 3.9, 4.35), 3.0)
+	_check_upper_furniture_y("bedside", Vector3(-2.1, 3.55, 4.35), 3.0)
+	_check_upper_furniture_y("bath-sink", Vector3(5.4, 3.7, 4.4), 3.0)
+	_check_upper_furniture_y("toilet", Vector3(2.9, 3.4, 3.0), 3.0)
+	_check_upper_furniture_y("bath", Vector3(5.4, 3.55, 3.0), 3.0)
 
 	# Exterior greenery / props present near the yard (trees, shrubs, flowers).
 	var exterior_meshes := _count_above_y(_world, 0.0)

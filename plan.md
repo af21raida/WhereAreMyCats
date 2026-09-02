@@ -123,6 +123,11 @@ A small countryside cottage and surrounding greenery. Two floors.
 - **Stairs:** connect downstairs and upstairs.
 
 ### Upstairs
+- **Landing / hallway:** real upper walls enclose the landing, with an
+  interactable, colliding, **closed-by-default** door into each room — the
+  bedroom door (west) and bathroom door (east) sit **side-by-side in the north
+  cross-wall, straight ahead of the player at the top of the stairs**; you open
+  the right door to enter. The rooms are not exposed from the stairs.
 - **Bedroom:** bed, bedside furniture, decorations, props. Tabby hides under
   the bed.
 - **Bathroom:** sink, toilet, bathtub/shower, props. Main lighting broken.
@@ -205,6 +210,9 @@ Intentional PS1-era look — one of the most important requirements.
   areas, find cats, small environmental interactions, and a possible lightweight
   "regroup/come here" command. Only the female protagonist initiates these.
 - Build a **reusable interaction system** where practical.
+- **Status:** a reusable interaction system (detection, prompts,
+  doors/cabinets/light-switch/inspection) is implemented in Phase 6; cat discovery
+  and the regroup command arrive with later phases.
 - Not all interactions are built in Phase 0; implement incrementally by phase.
 
 ---
@@ -330,8 +338,8 @@ project root/
 | 3     | Cottage Blockout              | Exterior + interior placeholder geometry ✅ |
 | 4     | PS1 Rendering Style           | Low-res, pixelated, fog, lighting, retro FX ✅ |
 | 5     | Cottage Environment           | Proper low-poly assets, props, exterior greenery ✅ |
-| 6     | Interaction System            | Detection, prompts, doors, cabinets, switches, inspection |
-| 7     | Cats                          | 3 cat models, placement, interaction, discovery |
+| 6     | Interaction System            | Detection, prompts, doors, cabinets, switches, inspection ✅ |
+| 7     | Cats                          | 3 cat models, placement, interaction, discovery ✅ |
 | 8     | Cat-Finding Gameplay          | Ginger/Tabby/Tuxedo discovery, broken light, audio clues, completion |
 | 9     | Audio & Atmosphere            | Music, ambience, sfx, bathroom mood |
 | 10    | UI & Game Flow                | Menu, start, pause, completion, credits, restart |
@@ -469,6 +477,89 @@ Phase 0 testing: project launches, config valid, no import errors.
   varied trees, shrubs, flower beds, a firewood stack, a stone well and a front
   doormat. `Phase5Test` added and passing; all other suites (Phase1–4, Stair,
   InputReal) still pass.
+- **Phase 6** — Interaction System: COMPLETE (2026-09-02). Added a reusable
+  interaction system: `Interactable` base (`Area3D`, group `interactable`, prompt,
+  range, `interact(actor)`) plus `InteractionManager` autoload that detects the
+  nearest in-range interactable in front of the female, shows a `[E] <prompt>`
+  label, and triggers on the `interact` action (E / gamepad A). Subclasses:
+  `InteractableDoor` (front door, hinged, defaults open so the entrance stays a
+  genuine passage; plus the two upstairs **room doors** added 2026-09-02 —
+  closed by default, swing into their rooms, and carry real panel collision),
+  `InteractableCabinet` (kitchen cabinet — Ginger's hiding
+  spot), `InteractableSwitch` (bathroom switch toggling the `bathroom_light`
+  group; the light starts OFF for the Phase 8 dark-room mechanic), and
+  `Inspectable` (fireplace / dining table / wardrobe / bookshelf messages via
+  `announce()`). `Phase6Test` passes; all prior suites unaffected.
+- **Phase 7** — Cats: COMPLETE (2026-09-02, revised same day for exploration-based
+  discovery). Three cats, each a `Cat` (extends `CharacterBody3D`) that builds its
+  own low-poly PS1 body in code (plain boxes + nearest-filtered materials) and
+  joins the follower chain behind the male once found. **Discovery is purely
+  exploration-based — NO hint prompts anywhere:**
+  - **Bread** (ginger, "You found Bread!") sleeps inside the kitchen cabinet; the
+	cabinet shows no "Open cabinet" prompt (silent ghost interactable) and the
+	player reveals Bread by opening it. Never reveals by proximity.
+  - **Inej** (tabby, "You found Inej!!!") hides under the bedroom bed and is
+	found automatically when the female explores nearby.
+  - **Void** (tuxedo, "You found Void!!") hides in the dark bathroom (light
+	starts OFF) and is found automatically when the female explores nearby.
+  - Each discovery announces ONLY that cat's line (no counters, no "all found",
+    no names hinting at other cats); discoveries are idempotent (once-only).
+  - `CatManager` autoload tracks state and drives the follower chain (Female ->
+    Male -> cats) with reasonable spacing; found cats enable their physics and
+    reuse the same robust follow/stuck-escape behaviour as the male, so they
+    climb stairs, avoid walls, recover when blocked, and never interfere with the
+    player (collision layer is exclusive to the world). `CatSpot` interactables
+    are removed entirely.
+  - Fixed the invisible bathroom switch: it previously floated in the air at
+	z=-5.4 with no wall behind it; it now mounts flush on the bathroom's south
+	(back) wall near (5.85, 4.3, -6.05) facing into the room, still toggling the
+	`bathroom_light` group with the "Turn on light"/"Turn off light" prompts.
+  - `Phase7Test` + updated `Phase6Test` (cabinet now silent) pass; all prior
+	suites (Phase1–6, Stair 9 stages, InputReal) unaffected.
+  - **2026-09-02 follow-up — robust multi-follower chain:** each found cat is
+	anchored to its own surface-snapped follow point AT the companion ahead (with
+	a small lateral spread) instead of a trailing point that could hover over the
+	slope; cats and the male gained stuck-recovery detours; cats gained
+	separation; cat arrival is flat-distance AND level-aware so they crest the
+	ramp onto the landing. `StairTest` grew to **11 stages** (door open, cats
+	follow the group up, hallway wall blocks beside the open doorway) and
+	`Phase7Test` gained a spacing/no-overlap check (see `devlog.md`
+	2026-09-02).
+  - **2026-09-02 follow-up — bathroom entrance/layout fix:** entered the bathroom
+	was impossible — a probe isolated the blocker to the **bathtub solid at
+	(1.8, -5.3)** sitting immediately inside the doorway (removing the open door
+	panel changed nothing; removing the tub opened the path to x 4.35). Layout
+	changes only: bathtub moved to the east wall `(5.5, 3.55, -3.4)`, toilet
+	moved deep to `(2.6, 3.4, -3.4)` (sink kept at `(5.2, 3.7, -5.2)`); the
+	stair ramp run shrank 3.8 → 3.2 so the crest sits at z −5.2 and the flat
+	landing covers the full doorway band (kills the threshold lip the male/cats
+	hit on diagonal approaches); switch plate nudged z −6.05 → −5.97 so it is
+	visibly mounted on the wall facing into the room. Void stays at
+	`(2.7, -4.85)`. Entry is now clear for female + male + all cats
+	(probe-verified), all suites (Phase1–7, Stair 11 stages, InputReal) pass,
+	`--import` clean (see `devlog.md` 2026-09-02).
+  - **2026-09-02 follow-up — upstairs layout: same-side bedroom + bathroom at the
+	top of the stairs.** The two room entrances were moved from the west/east
+	hallway walls into a single **north cross-wall at z=1.2** that encloses the
+	landing, so coming up the stairs the player faces both closed doors
+	side-by-side (bedroom LEFT/west gap at x −1.2, bathroom RIGHT/east gap at
+	x 1.2) and steps WEST onto the generous landing. A center-divider wall runs
+	x=0 (z 1.1..5.2) separating the rooms' interiors; pit railings (y 3..3.9)
+	keep the stairwell fenced. Bedroom furniture/props moved to the WEST slab
+	(bed at (−3.3, 3.9, 4.35), wardrobe inspectable at (−6.02, 5.05, 3.5), etc.),
+	bathroom to the EAST slab (sink/toilet/bathtub on the north wall,
+	mirror/towel near it); the bathroom switch now mounts the north wall above
+	the sink `(5.4, UF+1.3, 5.12)` (still toggling `bathroom_light` for the
+	Phase 8 dark-room), and cats Inej `(−3.3, .., 3.9)` and Void `(1.8, .., 4.3)`
+	moved behind their rooms' doors. Camera zones for the rooms updated to the
+	new slabs. `StairTest` stages rewritten for the new routing: stage 2b opens
+	both doors, 3/3b route up the landing to each open door, 9 keeps the
+	bug-#2 cross-floor check (logic + behaviour), **10 = cats climb the ramp on
+	their own AND thread the open bedroom door themselves** (phased, deterministic),
+	11 = the solid cross-wall blocks between the door gaps and the stairwell
+	railing blocks beside the pit. All suites pass: **Phase1–7, StairTest
+	(11 stages), InputRealTest** — ALL PASS, `--import` clean (see `devlog.md`
+	2026-09-02).
 - **Camera (2026-08-31 → final 2026-09-01):** the **third-person follow camera**
   (`scripts/camera/third_person_camera.gd` driving `CameraSystem`) is the active
   game camera — it follows the female from behind/above, stays stable, avoids

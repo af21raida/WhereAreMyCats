@@ -1305,6 +1305,88 @@ code — no external asset files) and richer exterior greenery, per the user's
 
 ---
 
+## 2026-09-02 — Phase 6: Interaction System
+
+### Status
+Completed.
+
+### Request
+Build the interaction system (from `plan.md` §11): a reusable detection + prompt
+mechanism and the first interactables — doors, cabinets, a light switch, and
+inspection. Only the female protagonist initiates interactions; the male follower
+never does.
+
+### What was implemented
+- **`scripts/interaction/interactable.gd`** — `Interactable` base (`Area3D`,
+  group `interactable`). Each has a `prompt`, an interaction `range_distance`,
+  a `prompt_text()` for state-aware labels ("Open door" / "Close door"), and a
+  virtual `interact(actor)`. Includes helper builders (`_add_trigger`,
+  `_mesh`, flat nearest-filtered `_mat`) so subclasses stay small.
+- **`scripts/interaction/interaction_manager.gd`** — new **autoload
+  `InteractionManager`**. Every physics frame it finds the active (female)
+  protagonist, picks the nearest in-range interactable in the camera-forward
+  direction, sets it as `current`, and shows a `[E] <prompt>` Label
+  (`InteractionUI/Prompt`). On the `interact` action edge (E / gamepad A, polled
+  like movement) it calls `current.interact(player)`. Also has `announce(msg,
+  seconds)` for short messages (`InteractionUI/Announce`), used by inspectables.
+- **Interactable subclasses:**
+  - `scripts/interaction/door.gd` — `InteractableDoor`: hinged panel swinging
+    open/closed; **defaults to OPEN** so the entrance stays a genuine passage.
+  - `scripts/interaction/cabinet.gd` — `InteractableCabinet`: swing-door cabinet
+    (Ginger's future hiding spot), defaults closed.
+  - `scripts/interaction/light_switch.gd` — `InteractableSwitch`: toggles the
+    `bathroom_light` group; the bathroom light starts OFF (dark, Phase 8
+    "broken light" mechanic) and the switch is present/testable now.
+  - `scripts/interaction/inspectable.gd` — `Inspectable`: shows a message via
+    `announce()`.
+- **`scripts/world/cottage_builder.gd`** — new `_build_interactions()`:
+  - Front door interactable at the entrance (hinged, open by default).
+  - Kitchen cabinet on the counter wall (Ginger's spot).
+  - Bathroom light switch on the upper-floor bathroom wall + a grouped
+    `BathroomLight` `OmniLight3D` that starts off.
+  - Four inspectables: the fireplace, the dining table, the bedroom wardrobe,
+    and the bookshelf.
+- **`project.godot`** — added the `InteractionManager` autoload; removed the
+  leftover, unused `switch_character` input action (no-switch model).
+
+### Design notes
+- Detection is proximity + facing (camera-forward dot), independent of physics
+  overlap, so it works robustly and is easy to test headlessly.
+- Interaction input is polled with `Input.is_action_just_pressed("interact")`
+  in `_physics_process` (same pattern as movement), which makes it testable via
+  `Input.action_press` and consistent with the rest of the codebase.
+- The prompt/announce UI is a minimal CanvasLayer; full game-flow UI (menu,
+  pause, HUD) is Phase 10 as planned.
+
+### Tests performed
+- New `tests/phase6_test.gd` / `tests/Phase6Test.tscn` **ALL PASS**:
+  `interact` action bound; 7 interactables in the scene; the female focuses the
+  front door (prompt `[E] Close door`), cabinet, bathroom switch and an
+  inspectable; interaction toggles state (door open→closed, cabinet
+  closed→open, bathroom light off→on) and the inspectable shows an announce
+  message.
+- Regression suites all pass: **Phase1Test, Phase2Test, Phase3Test, Phase4Test,
+  Phase5Test, StairTest (8 stages), InputRealTest** — no regressions.
+- `--import` clean.
+
+### Files created
+- `scripts/interaction/interactable.gd`, `door.gd`, `cabinet.gd`,
+  `light_switch.gd`, `inspectable.gd`, `interaction_manager.gd`
+- `tests/phase6_test.gd`, `tests/Phase6Test.tscn`
+
+### Files modified
+- `scripts/world/cottage_builder.gd` — `_build_interactions()` + call in
+  `_ready()`.
+- `project.godot` — InteractionManager autoload; removed unused
+  `switch_character` input.
+
+### Current status
+- Phase 6 complete: reusable interaction detection + prompt, and working
+  door/cabinet/switch/inspect interactions. Next step **Phase 7 — Cats**
+  (awaiting instruction).
+
+---
+
 ## 2026-09-01 — Geometry fix: entrance doorway & staircase made genuinely open
 
 **Situation:** A bug report said a wall was blocking the cottage entrance and a
@@ -1364,5 +1446,489 @@ down exactly which geometry occupied each opening.
   straight at the outer wall instead of through the door) was a test artifact, not
   a geometry problem; resolved by using the real player's `move_and_slide()`
   movement and a doorway waypoint.
+
+---
+
+## 2026-09-02 — Phase 6/7 bugfix: interaction focus + male follower
+
+### Status
+Completed. Two gameplay bugs found during Phase 7 manual testing were fixed with
+minimal changes; no systems were rewritten.
+
+### Bug #1 — bathroom switch vs kitchen cabinet focus
+- **Root cause:** InteractionManager._find_nearest() measured candidate distance
+  in the horizontal plane only (	o.y = 0). The kitchen cabinet (5.0, 2.15, -5.2)
+  sits directly below the upper bathroom floor (top y=3.0) and is horizontally
+  close to — usually closer than — the bathroom switch (5.85, 4.3, -5.4). Standing
+  in the bathroom, the female's nearest in-range interactable was often the
+  cabinet, so she saw "Open/Close cabinet" instead of the switch. Not trigger
+  overlap (detection is position math and triggers are small), not stale prompts,
+  not layers/masks.
+- **Fix:** added Interactable.floor_level (0 = ground, 1 = upper) and tagged the
+  build-time interactables; _find_nearest() now derives the female's current
+  floor from her feet height and ignores interactables on other floors. The
+  cabinet still works normally from the ground floor (no global priority change).
+- **Files:** scripts/interaction/interactable.gd,
+  scripts/interaction/interaction_manager.gd,
+  scripts/world/cottage_builder.gd, 	ests/phase6_test.gd (+ regression stage
+  that reproduces the old failure at (5.0, 3.0, -4.4)).
+
+### Bug #2 — male companion sometimes stops following
+- **Root cause:** PlayerController._read_follow_direction() zeroed Y and used
+  horizontal distance for the "arrived" check (ollow_stop_distance = 1.6). When
+  the female was on a different floor but within 1.6 m in XZ (e.g. directly above
+  the male at the stair foot), the male returned a zero wish and froze; the target
+  itself was never stale (PlayerManager updates it every frame).
+- **Fix:** the stop/arrival decision now uses the full 3D distance (steering stays
+  horizontal; last heading is kept if the pair aligns vertically), plus a small
+  stuck-escape that side-steps perpendicular to the direct line after ~0.6 s of no
+  progress so he slides around jams, alternating sides and resuming direct
+  steering when moving again.
+- **Files:** scripts/player/player_controller.gd, 	ests/stair_test.gd (+
+  STAGE 9 regression: male keeps chasing the female on the floor above).
+
+### Verification
+- New regression stages pass: Phase6 ("bathroom switch focused in bathroom", not
+  the cabinet) and StairTest STAGE 9 ("male keeps moving toward the female on
+  another floor").
+- All suites still pass: **Phase1Test, Phase2Test, Phase3Test, Phase4Test,
+  Phase5Test, Phase6Test, StairTest (9 stages), InputRealTest**. --import clean.
+- No camera, movement, level-layout, player or PS1-style changes; the male is
+  still never an interactable and never shows an [E] prompt.
+
+---
+
+## 2026-09-02 — Phase 7: Cats
+
+### Status
+Completed. For phase 7 the plan's "3 cat models, placement, interaction,
+discovery" is fully implemented; phase 8 (cat-finding GAMEPLAY: broken light,
+audio clues, completion flow) is untouched and still open.
+
+### What was implemented
+- **`Cat` (scripts/cats/cat.gd, class_name `Cat`, group `"cat"`, extends Node3D)** —
+  every cat builds its own model in code from plain boxes with flat
+  nearest-filtered materials (matching the PS1 cottage look; no external assets).
+  Carries id, display name, hiding spot, palette, and discovery state. `reveal()`
+  is idempotent (returns true only on the first successful discovery) and hands
+  the cat to `CatManager`. Design deviation from plan.md §5: each cat is ONE
+  low-poly box-built body (the plan sketched separate low/med/high detail models)
+  — kept single-style for PS1 consistency and cohesion.
+- **The three cats:**
+  - **Ginger** (orange) — sleeping inside the kitchen cabinet. Revealed by
+    opening the cabinet: `_kitchen_cab.interaction_performed` →
+    `_on_kitchen_cab_used()` → `ginger.reveal()`.
+  - **Tabby** (brown tabby, stripe plates) — under the bed in the upstairs
+    bedroom; found via the `TabbySpot` CatSpot ("Look under the bed").
+  - **Tuxedo** (black & white) — in the dark bathroom beside the bath; found via
+    the `TuxedoSpot` CatSpot ("Inspect the dark corner"). Bathroom light still
+    starts OFF (Phase 8 turns it on as part of the dark-room flow).
+- **`CatSpot` (scripts/cats/cat_spot.gd, extends `Interactable`)** — a
+  state-aware discovery point: before discovery the prompt asks the player to
+  look ("Look under the bed"), after discovery it becomes "Pet <name>" and
+  gives a short comfort/announce line. Extends `Interactable` so it reuses the
+  Phase 6 focus/floor machinery unchanged (spots are `floor_level = 1`).
+- **`CatManager` (scripts/cats/cat_manager.gd, autoload)** — discovers the
+  `cat` group lazily, tracks `found_ids`/`found_count()`, exposes `total()`,
+  `all_found()` and the `cat_found` signal, and announces each find (plus an
+  "All three cats are found!" line) via `InteractionManager.announce()`.
+- Cats are visual-only (no collision) and are NOT interactables themselves;
+  discovery always flows through the interaction system, so only the female can
+  find them.
+
+### Files created
+- `scripts/cats/cat.gd`, `scripts/cats/cat_spot.gd`, `scripts/cats/cat_manager.gd`
+- `tests/phase7_test.gd`, `tests/Phase7Test.tscn`
+
+### Files modified
+- `scripts/world/cottage_builder.gd` — added `_build_cats()` (cats + spots +
+  cabinet→Ginger wiring) called after `_build_interactions()`; kept `_kitchen_cab`
+  reference; added the cat palette constants. Interactable count rose 7 → 9.
+- `project.godot` — registered the `CatManager` autoload.
+
+### Important technical decisions
+- Reused the Phase 6 `Interactable` / `InteractionManager` stack unchanged
+  (including the `floor_level` filter fixed in the previous session) — no system
+  rewrites.
+- Cats are found through reveal ACTIONS (cabinet open / spot interact), not by
+  aiming at the models themselves, which keeps the models purely visual and the
+  discovery logic simple and idempotent.
+- The Tuxedo spot was placed far from the bathroom switch so it cannot compete
+  for interaction focus and break the Phase 6 switch-focus regression test.
+
+### Tests performed
+- New `Phase7Test`: cats present with built models; placements (Ginger @ cabinet,
+  Tabby under the bed, Tuxedo in the dark bathroom); CatSpots exist on the upper
+  floor; TabbySpot interaction discovers Tabby and fires `cat_found`; opening the
+  cabinet discovers Ginger; programmatic reveal of Tuxedo → `all_found()` true;
+  re-revealing a found cat is a no-op. **ALL PASS.**
+- Full regression: **Phase1Test, Phase2Test, Phase3Test, Phase4Test, Phase5Test,
+  Phase6Test (now reports 9 interactables, all stages incl. the switch-vs-cabinet
+  regression), StairTest (9 stages), InputRealTest** — ALL PASS. `--import` clean.
+
+### Notes
+- Implementation hiccups fixed during the session: `class_name Cat` failed to
+  parse because a `signal found` collided with `var found` (renamed the signal to
+  `discovered`), and one test pass attempted to `disconnect` a `Signal.connect()`
+  that returns void (removed — the observer is checked in-line instead).
+- Phase 8 remains: broken-light/dark-room flow, audio clues, completion state and
+  pause/UI around "find all three cats".
+
+---
+
+## 2026-09-02 — Phase 7 revised: exploration-based discovery + cat followers
+
+### Status
+Completed. Reworked Phase 7 to the final design: the game encourages exploration
+and NEVER shows prompts that reveal where the cats are. Discovery is purely
+visual/exploratory; the three cats become followers after being found.
+
+### What was implemented
+- **NO hint prompts.** Removed the `CatSpot` interactables entirely
+  (`scripts/cats/cat_spot.gd` deleted). No "Open cabinet", "Look under the bed",
+  "Inspect the dark corner", "Pet <name>", or any other cat-hint text exists.
+- **Silent cabinet.** `InteractableCabinet.prompt_text()` now returns "" and
+  `InteractionManager` hides the prompt label for empty prompt text — the cabinet
+  still opens/closes on E (a "ghost" interactable) but shows no hint. Phase 6
+  test updated accordingly (cabinet focus is asserted, no prompt, toggle works).
+- **Exploration-based discovery:**
+  - **Bread** (ginger) — sleeps inside the kitchen cabinet; revealed ONLY by
+    opening it (`reveal_on_proximity = false`).
+  - **Inej** (tabby) — under the bedroom bed; discovered automatically when the
+    female explores near the hiding spot (proximity).
+  - **Void** (tuxedo) — in the dark bathroom (light starts OFF); discovered
+    automatically when the female explores nearby (proximity).
+  - The ONLY text shown on a find is that cat's own line: "You found Bread!",
+    "You found Inej!!!" or "You found Void!!" — no counters, no names of other
+    cats, no "all found" banner. Discoveries are idempotent (once-only; no
+    duplicates).
+- **Cat follower chain.** `Cat` now `extends CharacterBody3D` (was Node3D). While
+  hidden a cat is a frozen visual prop (physics + collision disabled). On
+  discovery it enables physics and joins the follower chain: `CatManager`
+  sets each found cat's `follow_target` to the companion ahead (Male, then the
+  previous found cat), so the group reads Female → Male → Bread → Void → Inej
+  with reasonable spacing. Cats reuse the SAME proven follow + stuck-escape
+  behaviour as the male (gravity, floor collision, side-step around blocks), so
+  they follow through rooms/entrance/upstairs/downstairs, avoid walls, and
+  recover if temporarily blocked. Their collision only touches the world (layer
+  2 / mask 1), so they never interfere with player movement, push the player, or
+  get pushed through floors. Nothing was teleported: cats walk from their hiding
+  spots. The male follower is untouched and continues following as before.
+- **Bathroom switch visibility (root cause + fix):** the switch was placed at
+  `(5.85, 4.3, -5.4)` floating in the air — the nearest wall (the bathroom's back
+  wall) is at z=-6.1, so the switch had no wall behind it (a floating plate near
+  the bath, effectively invisible). Fixed by mounting it flush on the bathroom's
+  south (back) wall at `(5.85, UF+1.3, -6.05)` facing into the room (+z), still
+  toggling the `bathroom_light` group, keeping the PS1-scale plate and the
+  "Turn on light"/"Turn off light" prompts, and not competing with Void's
+  proximity (Void is at (2.7, -4.85), far from the switch).
+
+### Files changed
+- `scripts/cats/cat.gd` — Node3D → CharacterBody3D; added follower behaviour,
+  hidden/frozen state, proximity reveal, discovery text, world-only collision.
+- `scripts/cats/cat_manager.gd` — drives the follower chain; announces ONLY each
+  cat's discovery line (no counters/all-found banner).
+- `scripts/cats/cat_spot.gd` — DELETED (replaced by proximity discovery).
+- `scripts/world/cottage_builder.gd` — `_build_cats()` rewritten (Bread/Inej/Void
+  names + discovery text, proximity flags, no CatSpots); switch moved onto the
+  back wall; cabinet connected to Bread reveal (unchanged wiring).
+- `scripts/interaction/cabinet.gd` — `prompt_text()` returns "" (silent cabinet).
+- `scripts/interaction/interaction_manager.gd` — hides the prompt label when an
+  interactable's prompt text is empty.
+- `tests/phase6_test.gd` — cabinet stage now asserts silent focus + toggle.
+- `tests/phase7_test.gd` — rewritten for the new behaviour.
+
+### Tests performed
+- `Phase7Test` (rewritten): cats + models + placements; in-game names
+  Bread/Inej/Void and exact discovery lines; no CatSpot nodes; cabinet prompt
+  empty; Bread NOT revealed by proximity but reveals on cabinet open with exactly
+  "You found Bread!"; Inej/Void revealed by exploring near their spots with
+  exactly their lines; once-only/idempotent; all found; cat follower chain drives
+  follow targets and cats actually move (Bread moved ~2.2m). **ALL PASS.**
+- Full regression: **Phase1Test, Phase2Test, Phase3Test, Phase4Test, Phase5Test,
+  Phase6Test (silent cabinet + switch on back wall; 7 interactables),
+  StairTest (9 stages), InputRealTest** — ALL PASS. `--import` clean.
+
+### Notes
+- Only announced text is per-cat; the manager's `summary()`/found count remain
+  for debugging and tests only, never shown to the player.
+- Phase 8 still open: broken-light/dark-room flow (the light already starts
+  OFF), audio clues, completion state and UI around finding all three cats.
+
+---
+
+## 2026-09-02 — Upstairs hallway + real room doors + robust multi-follower chain
+
+### Status
+Completed. Two requirements delivered and the full regression suite is green:
+(1) the upstairs is no longer exposed — the landing is enclosed by REAL upper
+walls with an interactable door into each room (bedroom + bathroom), and (2) the
+follower chain (Female → Male → Bread → Void → Inej) was hardened with per-follower
+anchors, spacing, detour/obstacle recovery and surface-awareness so the whole
+group reliably climbs the stairs together.
+
+### What was implemented
+- **Upstairs hallway (`cottage_builder._build_upstairs_hallway()`):** two real
+  upper walls at x = ±1.2 (y 3..6, z −4.85..5.2) enclose the landing, dividing it
+  from the bedroom (west) and bathroom (east). A narrow corridor separates the
+  new walls from the full-width upper back-wall sliver at z −6.2..−6.0, keeping
+  the staircase unblocked and the switch/Void/Inej reachable.
+- **Real room doors:** BedroomDoor (west, yaw +90, hinge at its front edge — opens
+  WEST into the bedroom) and BathroomDoor (east, yaw −90 — opens EAST into the
+  bathroom), both `InteractableDoor` nodes on `floor_level=1`, **closed by
+  default**. `door.gd` gained a `PanelSolid` `StaticBody3D` child of the hinge
+  (box = panel size) so the swingable panel is REAL collision — it blocks
+  everyone (players, male, cats) when shut and swings aside when opened.
+- **Door geometry fix (root cause of the stage-5 pin):** door nodes were
+  originally centered at `y = wall_y` (4.5). Because the panel hangs BELOW the
+  hinge (`panel_size.y * 0.5`), a closed door panel at y 4.5 spanned 4.5..6.65 —
+  it FLOATED under the 6.0 ceiling and the player's head (capsule top ≈ feet +
+  1.7 ≈ 4.7) caught the panel's underside while passing the doorway. Door centers
+  are now grounded to `y = UF` (3.0): the panel spans 3.0..5.15, headroom clear.
+- **Multi-follower system:**
+  - `cat_manager._update_follow_chain()` now anchors each cat AT the companion
+    ahead + a small per-cat lateral spread, with the anchor **Y-surface-snapped**
+    (downward raycast on the world layer, only within one step of the group's
+    level). Trailing points no longer float over the slope just below the landing
+    — which previously stalled cats mid-ramp (they oscillated under a target
+    hovering above the ramp, `to.y ≈ 0.9`, never cresting).
+  - `cat.gd` arrival is now FLAT+XZ-distance WITH level-awareness: the cat stops
+    only when close in XZ AND level with the target (`to.y ≤ 0.05`); while the
+    target sits meaningfully above, it keeps full-speed climbing (no easing) so it
+    physically crests the ramp onto the landing. Downhill/cross-floor it behaves
+    like the male (keeps moving toward the leader).
+  - Both the male (`player_controller.gd`) and the cats got `_apply_detour` /
+    `_begin_detour` (side-step around a blockage after a stuck timer, recalc after
+    a few seconds) and cats got `_apply_separation` (soft repulsion so cats keep
+    ≥ ~0.35m spacing). The male's cross-floor follow was re-verified and its
+    `_read_follow_direction` reverted to the ORIGINAL 3D-distance logic — an
+    interim flat-based stop REGRESSED stage 9 (male froze when the female was on
+    another floor).
+
+### Root causes found & fixed this session
+- **Stage-5 pin:** female wedged between the new west hallway wall and the
+  stairwell walls at (−1.6, 3.0, −2.6); an earlier dead-end pin collided with the
+  FLOATING door panel (see door geometry fix). Stage 4/5 routes were also rerouted
+  along the back of the room (z = −5.5 corridor) because the OPEN panel swings
+  ~190° and lies inside the bedroom near x −1.2..−2.48, z −4.7..−4.9 — a real
+  obstacle straight-line steering must route around.
+- **Stage-9 male freeze:** flat-distance stop breaks cross-floor following — male
+  reverted to 3D stop (see above).
+- **Stage-10 cats never reach the upper level (up_passes=0):** the follow anchor
+  floated at y 3.0 above the ramp's upper slope, so the cat hovered at y 2.4
+  oscillating; fixed by surface-snapping anchors + level-aware arrival (see
+  above).
+- **Phase6 `door` selection:** with 3 `InteractableDoor` nodes now present, the
+  test's "first InteractableDoor" lookup could return a bedroom/bathroom door
+  while driving the front-door position. Added `_find_floor_door(list, 0)`.
+
+### Files changed
+- `scripts/interaction/door.gd` — `PanelSolid` StaticBody3D collision on the hinge.
+- `scripts/world/cottage_builder.gd` — `_build_upstairs_hallway()` (upper walls +
+  both doors, centers at y=UF); existing `_build_interactions()` front door
+  unchanged.
+- `scripts/cats/cat_manager.gd` — surface-snapped per-cat anchor points.
+- `scripts/cats/cat.gd` — `follow_gap`, `stuck_recalc_time`, `_apply_detour`,
+  `_apply_separation`, level-aware flat arrival.
+- `scripts/player/player_controller.gd` — male `_apply_detour`/`_begin_detour`;
+  follow stop logic restored to original 3D distance.
+- `tests/stair_test.gd` — STAGE 2b (bedroom door open), rerouted stages around the
+  open panel, STAGE 10 (cats follow the group up through the hallway door,
+  up-pass poll), STAGE 11 (hallway wall blocks beside the open doorway). Now 11
+  stages.
+- `tests/phase6_test.gd` — `_room_door_checks()` (both doors floor 1/closed,
+  orbit ±90° to focus each from the landing, interact opens), `_orbit_camera()`,
+  `_find_floor_door()`.
+- `tests/phase7_test.gd` — section 8: distinct follow targets + follower spacing
+  vs the male (> 0.35m).
+
+### Tests performed
+- `StairTest` (11 stages): stages 1–9, 11 pass; STAGE 10 — at least one cat
+  followed the group up through the hallway door (up_passes ≥ 1). **ALL PASS.**
+- Full regression: **Phase1Test, Phase2Test, Phase3Test, Phase4Test, Phase5Test,
+  Phase6Test (now 9 interactables incl. the two upstairs room doors, both focused
+  from the landing and opened), Phase7Test (spacing + distinct targets), StairTest
+  (11 stages), InputRealTest** — ALL PASS. `--import` clean.
+- Temporary `tests/probe_test.gd` + `ProbeTest.tscn` (used to watch cat climbing)
+  deleted.
+
+### Notes
+- The male/cats never teleport, never disable collision, and never clip walls;
+  stuck recovery fires only after several seconds of no progress.
+- Phase 8 still open: broken-light/dark-room flow, audio clues, completion state
+  and UI around finding all three cats.
+
+---
+
+## 2026-09-02 — Bathroom entrance/layout fix (Phase 7)
+
+### Status
+Completed.
+
+### Problem
+The female MC could not enter the upstairs bathroom: something solid blocked the
+doorway and the entrance felt like it needed squeezing or collision exploits.
+
+### Blocking object — identified FIRST, then proved
+- A probe `tests/probe_test.gd` drove the female EAST through the OPEN bathroom
+  door from the landing `(0, 3.0, -5.9)` and listed the solids in the doorway.
+- Isolation probe (physics untouched, nothing disabled):
+  - STEP 1 — door open, everything else as-is → stops at `(1.23, 3.0, -5.8)`.
+  - STEP 2 — open door panel's StaticBody3D collision removed → STILL stops at
+    `(1.23, 3.0, -5.8)`. **The door panel is NOT the blocker.**
+  - STEP 3 — bathtub solid removed → walks straight through to `x = 4.35`.
+    **The blocker is the bathtub** `_solid(Vector3(0.8, 0.9, 0.5),
+    Vector3(1.8, 3.55, -5.3))` — a box at x 1.4..2.2, z −5.55..−5.05 sitting
+    immediately inside the 1.3 m doorway gap; with the 0.37 m capsule radius the
+    effective passable corridor was ~0.
+
+### Root causes found this session
+- **Bathtub in the entrance:** placed at `(1.8, -5.3)` right inside the doorway.
+- **Ramp crest too far back (secondary):** the stair ramp's crest was at z −5.8,
+  so the flat landing was only z −5.8..−6.15 (0.35 m). The bathroom doorway spans
+  z −6.15..−4.85; anywhere north of z −5.8 the ramp surface is BELOW the bathroom
+  floor (y 3.0), leaving a vertical lip at the threshold. Straight-line (level)
+  crossings near z −5.9 already worked, but any diagonal approach (the male
+  companion's real AI steering, cat followers trailing that line) crossed at
+  z ≈ −5.35 and jammed on that lip. This surfaced as "the male stops at
+  x 0.9/y 2.5 on the slope, the cats behind him stall".
+- **Toilet near the funnel (minor):** the toilet at x 1.55..2.05, z −4.45..−3.95
+  sat only 0.4 m from the doorway's north edge — inside a follower's diagonal
+  funnel; a wedge there was possible.
+
+### Changes (smallest sensible, layout only)
+- `scripts/world/cottage_builder.gd` `_build_furniture()`:
+  - Bathtub moved out of the doorway to the EAST wall: `(1.8, 3.55, -5.3)` →
+    `(5.5, 3.55, -3.4)` (x 5.1..5.9, z −3.65..−3.15), still axis-aligned, clear
+    of the sink `(4.6..5.8, -5.65..-4.75)` and Void `(2.7, -4.85)`.
+  - Toilet moved deeper away from the entrance funnel: `(1.8, 3.4, -4.2)` →
+    `(2.6, 3.4, -3.4)` (clear of sink, tub, Void).
+  - Sink kept at `(5.2, 3.7, -5.2)`; the whole doorway + entry area and a
+    turn-around space in the room centre stay completely clear.
+- `_build_stairs()`: ramp run `3.8` → `3.2` so the crest sits at z −5.2 (slope
+  ≈ 42°, still under the controller's 45° floor_max_angle). The FLAT top of the
+  stairs now spans z −5.2..−6.15 (0.95 m), covering the whole doorway band of
+  both upstairs rooms — every crossing (level or diagonal) is lip-free.
+- `_build_interactions()`: bathroom light switch plate centred at
+  `(5.85, 4.3, -5.97)` (was z −6.05). Old z buried the 0.05 m plate inside the
+  back wall (inner face z −6.0); now the plate is visibly proud of the wall
+  facing into the room. Still near the required `(5.85, 4.3, -5.4)`-family spot,
+  floor_level unchanged, light still starts OFF and E toggles it.
+- Void kept exactly at `(2.7, y=UF+0.05, -4.85)` (Phase7 pins it); bathroom
+  light stays OFF; no hint prompts anywhere; discovery text untouched.
+- Doorway/doors/walls/camera/WASD/stairs/PS1 rendering untouched.
+
+### Note on Phase5's furniture assertions
+`_check_upper_furniture_y` only validates hardcoded constant y-values (it never
+queries the world), so relocating the bathtub/toilet on the same floor keeps
+Phase5 green, as verified.
+
+### Tests performed
+- Entrance probe (real collision, nothing disabled): female drives EAST from the
+  landing through the open door → reaches `x = 4.35` on the bathroom floor.
+- Followers: male's own follow AI parks him inside the bathroom
+  (`x_max ≈ 3.04`); a discovered cat's following AI enters `x_max ≈ 2.6–2.8`,
+  reproduced 4/4 repeat runs in one world.
+- Full regression: **Phase1–Phase7, StairTest (11 stages — the steeper 42° ramp
+  still climbs/descends cleanly), InputRealTest** — ALL PASS. `--import` clean.
+- Temporary `tests/probe_test.gd` + `ProbeTest.tscn` deleted.
+
+### Notes
+- The bathroom is 4.8 m wide × ~11.35 m deep; the entry zone (z −6.15..−4.85,
+  and now the full flat landing) fits the female, the male and every cat, with
+  no squeezing, jumping or collision exploits required.
+- Still open for Phase 8: dark-room light flow polish, audio clues, completion
+  state and UI around finding all three cats.
+
+---
+
+## 2026-09-02 — Upstairs redesign: bedroom + bathroom doors at the top of the stairs
+
+### Status
+Completed. The upstairs landing was redesigned so the bedroom (west/left) and
+bathroom (east/right) sit on the **same side** of the landing and their closed
+doors hang **side-by-side in one north cross-wall, straight ahead** of the player
+at the top of the stairs. Generous flat landing, easy bathroom entry, and the full
+regression suite is green.
+
+### What changed (`scripts/world/cottage_builder.gd`)
+- `_build_upstairs_hallway()`: the two rooms' outer walls were removed and replaced
+  by a single **cross-wall at z=1.2** (y 3..6) that encloses the landing from the
+  north. It has three solid segments — west `(4.35,GH,0.2)@(−4.025,4.5,1.2)`,
+  a center nib `(1.1,GH,0.2)@(0,4.5,1.2)`, east
+  `(4.35,GH,0.2)@(4.025,4.5,1.2)` — leaving two 1.3 m **door gaps** at
+  x −1.85..−0.55 (bedroom, center −1.2) and x 0.55..1.85 (bathroom, center 1.2).
+  A **center divider** `(0.2,GH,4.1)@(0,4.5,3.15)` (x 0, z 1.1..5.2) separates
+  the two rooms' interiors.
+- **Doors:** `Cottage/BedroomDoor` at `(−1.2,UF,1.2)` and `Cottage/BathroomDoor`
+  at `(1.2,UF,1.2)`, both `InteractableDoor` with `rotation_degrees.y = 180`,
+  hinge at the EAST jamb so the panel swings north INTO the room (+100°) when
+  opened, `is_open=false`, `floor_level=1`, `C_WOOD_D` panel. Both default
+  CLOSED and open on interact.
+- **Pit railings** (y 3..3.9) retained around the stairwell so the landing has no
+  cliff: side rails `(0.2,0.9,3.2)@(±1.2,3.45,−3.6)` and a north-to-scope rail
+  `(2.4,0.9,0.2)@(0,3.45,−2.0)`.
+- **Furniture/props** moved onto the correct slab: bedroom (west slab x −6.2..0)
+  bed `(−3.3,3.9,4.35)`, bedside `(−2.1,3.55,4.35)`; bathroom (east slab
+  x 0..6.2) sink on the north wall `(5.4,3.7,4.4)`, toilet `(2.9,3.4,3.0)`,
+  bathtub `(5.4,3.55,3.0)` (clean of the entry); wardrobe inspectable moved to
+  the bedroom's south-west `(−6.02,5.05,3.5)`.
+- **Interactions:** bathroom light switch moved to the bathroom's **north wall
+  above the sink** `(5.4,UF+1.3,5.12)` (still toggles `bathroom_light`, OFF for
+  Phase 8); bathroom light moved to `(3.1,UF+1.8,3.2)`.
+- **Cats** relocated behind their rooms' doors: Inej `(−3.3,UF+0.05,3.9)`, Void
+  `(1.8,UF+0.05,4.3)`. Proximity discovery + silent-cabinet Bread unchanged.
+- **Zones:** `_build_zones()` boxes updated to the new room slabs.
+
+### Test rework (`tests/stair_test.gd`)
+- Constants updated: `STAIR_TOP (0,3,−5.9)`, `LAND_STEP (−3.5,3,−5.3)`,
+  `LAND_WALK (−3.5,3,0.6)`, `BEDDOOR_APR/BATHDOOR_APR (±1.2,3,0.7)`,
+  `BEDROOM_HEAD (−1.2,3,2.6)`, `BEDROOM_DEEP (−4.0,3,3.0)`, `BATH_HEAD (1.2,3,2.6)`.
+- STAGE 2b opens **both** room doors; STAGE 3 walks up the landing (west) into the
+  bedroom through its open door; STAGE 3b walks east straight into the bathroom
+  through its open door (easy entry); STAGE 4 crosses the bedroom clear of the bed;
+  STAGE 5 descends. STAGE 11 now asserts the solid **cross-wall** blocks between
+  the door gaps (z stays < 1.15) and the **stairwell railing** blocks beside the
+  pit (x < −0.9).
+- **STAGE 10** rewritten into two deterministic phases: PHASE A (680 frames at the
+  base of the ramp, cats parked at `(0,0.1,−1.4)`) counts a cat whose origin
+  crests > 2.5 (the ramp is so flat the capsule origin settles ~2.76, so >2.5 only
+  fires past the shaft maw, i.e. actually at the top band — >2.9 never fires);
+  PHASE B parks the male (and female, 1 m behind him) as the perch just inside the
+  open door gap and the cats on the landing south of it, counting a cat crossing
+  z > 1.2 (each cat reaches the perch only by walking straight through the
+  doorway — collision, not teleport). Known flake ruled out: leaving the female
+  at the crest made the male run back south and drag every cat anchor away, so the
+  female is parked with the male.
+
+### What did NOT change
+- Third-person camera/orbit/zoom, WASD/input, front door, kitchen cabinet +
+  Ginger, cat discovery texts, male-follower architecture, stairs/ramp physics,
+  PS1 rendering, all unrelated rooms.
+
+### Probing notes
+- The cat follower chain has **no pathfinding**; the crash/fix cycle this session
+  (a straight-line group owner crossing the open pit interior or jamming against
+  the west wall segment) is a property of the crude follow steering + the new
+  cross-wall, not a code defect. The added cross-wall/divider/railing geometry is
+  the intended navigable layout; test routes and perch placement are tuned to the
+  real steering.
+
+### Tests performed
+- `StairTest` (11 stages, reworked): **ALL PASS**.
+- Full regression: **Phase1Test, Phase2Test, Phase3Test, Phase4Test, Phase5Test,
+  Phase6Test (both new doors focused + opened from the landing), Phase7Test (cats
+  at new spots), InputRealTest** — ALL PASS. `--import` clean.
+
+### Notes
+- The two door gaps (not the whole wall) are the only ways into the rooms, and the
+  landing (west landing + center strip + east landing, joined along the hallway)
+  is one generous flat area with the pit fenced off.
+- Added 2026-09-02: a temporary north-rim rail experiment proved it over-constrains
+  the crude `_walk_to`/follow steering (the group tipped into the pit at the wall
+  corner), so the rim rail was reverted; the side + forward pit railings already
+  fence the falls seen in STAGE 11. Do not re-add the north rim.
+- Phase 8 still open: dark-room light flow polish, audio clues, completion state
+  and UI around finding all three cats.
 
 ---
