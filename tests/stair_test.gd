@@ -14,16 +14,15 @@ extends Node
 const FOOT := Vector3(0.0, 0.1, -2.2)        # ground floor at the foot of the stairs
 const STAIR_TOP := Vector3(0.0, 3.0, -5.9)   # on the flat top of the ramp at the back
 # Landing + room waypoints. Coming up the stairs the player crests at z=-5.2,
-# steps sideways onto the west landing and walks north toward the single
-# cross-wall at z=1.2, where the bedroom (LEFT) and bathroom (RIGHT) doors sit
-# side-by-side — straight ahead of the player.
-const LAND_STEP := Vector3(-3.5, 3.0, -5.3)   # side-step off the crest onto the west landing
-const LAND_WALK := Vector3(-3.5, 3.0, 0.6)    # along the landing, south of the door wall
-const BEDDOOR_APR := Vector3(-1.2, 3.0, 0.7)  # just south of the (open) bedroom door gap
-const BATHDOOR_APR := Vector3(1.2, 3.0, 0.7)  # just south of the (open) bathroom door gap
-const BEDROOM_HEAD := Vector3(-1.2, 3.0, 2.6) # inside the bedroom, past the open door
+# walks north along the center landing (x -1.2..1.2), and the bedroom (LEFT,
+# x<-1.2) and bathroom (RIGHT, x>1.2) doors sit in the dividing walls at x=±1.2.
+const LAND_STEP := Vector3(0.0, 3.0, -4.5)   # just off the crest onto the center landing
+const LAND_WALK := Vector3(0.0, 3.0, 0.0)    # along the center landing
+const BEDDOOR_APR := Vector3(-0.5, 3.0, -2.0)  # landing side, south of the bedroom door gap
+const BATHDOOR_APR := Vector3(0.5, 3.0, -2.0)  # landing side, south of the bathroom door gap
+const BEDROOM_HEAD := Vector3(-3.0, 3.0, -1.0) # inside the bedroom, past the open door
 const BEDROOM_DEEP := Vector3(-4.0, 3.0, 3.0) # deeper in the bedroom (clear of the bed)
-const BATH_HEAD := Vector3(1.2, 3.0, 2.6)      # inside the bathroom, past the open door
+const BATH_HEAD := Vector3(3.0, 3.0, -1.0)     # inside the bathroom, past the open door
 
 var _world: Node = null
 var _failures: Array[String] = []
@@ -63,21 +62,20 @@ func _main() -> void:
 		_female.global_position.y >= 2.4,
 		"pos=%s", _female.global_position)
 
-	# 2b) Upstairs: the bedroom + bathroom doors hang closed in the cross-wall
-	# ahead; open both (as the player would) so the later walks stay physically
-	# clear.
-	print("STAGE 2b: room doors (cross-wall) open")
+	# 2b) Upstairs: the bedroom + bathroom doors hang closed in the dividing walls;
+	# open both (as the player would) so the later walks stay physically clear.
+	print("STAGE 2b: room doors (dividing walls) open")
 	var bdoor: Node = _world.get_node_or_null("Cottage/BedroomDoor")
 	var adoor: Node = _world.get_node_or_null("Cottage/BathroomDoor")
 	if bdoor == null or adoor == null:
-		_fail("BedroomDoor/BathroomDoor missing (upstairs cross-wall)")
+		_fail("BedroomDoor/BathroomDoor missing (dividing walls)")
 	else:
 		await _open_door(bdoor)
 		await _open_door(adoor)
 		await _await_frames(35)   # let the panels finish swinging clear
 
-	# 3) Step off the top of the stairs onto the flat landing, then through the
-	# open bedroom door (LEFT) into the bedroom.
+	# 3) Step off the top of the stairs onto the flat landing, walk north along
+	# the center landing, then through the open bedroom door (LEFT) into the bedroom.
 	print("STAGE 3: step onto landing -> bedroom (door LEFT)")
 	await _walk_to(_female, LAND_STEP, 500)
 	await _walk_to(_female, LAND_WALK, 500)
@@ -87,8 +85,8 @@ func _main() -> void:
 		absf(_female.global_position.y - 3.0) < 0.5,
 		"pos=%s", _female.global_position)
 
-	# 3b) From the landing walk east and straight into the bathroom through its
-	# open door (RIGHT) — the two doors sit side-by-side ahead of the player.
+	# 3b) From the bedroom walk east back through the bedroom door, across the
+	# landing, and into the bathroom through its open door (RIGHT).
 	print("STAGE 3b: bathroom door (RIGHT) entry is easy")
 	await _walk_to(_female, BEDDOOR_APR, 300)
 	await _walk_to(_female, BATHDOOR_APR, 300)
@@ -141,15 +139,15 @@ func _main() -> void:
 
 	# 10) Follower chain: once the cats are found they must (a) climb the ramp
 	# ON THEIR OWN to the crest/landing, and (b) thread the open bedroom door by
-	# rounding the solid cross-wall — collisions, not teleports, get them up.
+	# walking through the dividing wall gap — collisions, not teleports, get them up.
 	print("STAGE 10: cats climb up and thread the open bedroom door")
 	await _check_cats_follow_up()
 
-	# 11) The rooms really close off the landing: pushing NORTH into the SOLID
-	# cross-wall (beside the door gaps) must be blocked, and the stairwell railing
+	# 11) The dividing walls really close off the rooms: pushing into the SOLID
+	# dividing wall (beside the door gaps) must be blocked, and the stairwell railing
 	# must stop a player straying sideways into the open pit — while the door gaps
 	# themselves stay passable (stages 3/3b).
-	print("STAGE 11: cross-wall + stairwell railing block passage")
+	print("STAGE 11: dividing walls + stairwell railing block passage")
 	await _check_hallway_wall_blocks()
 
 func _male_follows_up() -> void:
@@ -237,31 +235,30 @@ func _check_follow_across_floors() -> void:
 			[moved, flat_start, flat_end])
 
 func _check_hallway_wall_blocks() -> void:
-	# Park the female on the east landing, then push NORTH at x=4.0 — straight
-	# into the SOLID east segment of the cross-wall (z=1.2). She must be stopped,
-	# i.e. her z stays < 1.15; only the two door gaps (stages 3/3b) pass.
-	_female.global_position = Vector3(4.0, 3.0, 0.7)
+	# Park the female on the center landing, then push EAST at z=-3.0 — straight
+	# into the SOLID east dividing wall (x=1.2). She must be stopped, i.e. her x
+	# stays < 1.1; only the door gap at z=-1.0 passes.
+	_female.global_position = Vector3(0.0, 3.0, -3.0)
 	for i in 10:
 		await get_tree().physics_frame
-	await _walk_to(_female, Vector3(4.0, 3.0, 2.5), 240)
-	if _female.global_position.z < 1.15:
-		print("PASS cross-wall blocks passage north (z=%.2f)" % _female.global_position.z)
+	await _walk_to(_female, Vector3(3.0, 3.0, -3.0), 240)
+	if _female.global_position.x < 1.1:
+		print("PASS east dividing wall blocks passage (x=%.2f)" % _female.global_position.x)
 	else:
-		_fail("walked through the cross-wall (z=%.2f)" % _female.global_position.z)
+		_fail("walked through the east dividing wall (x=%.2f)" % _female.global_position.x)
 
-	# The stairwell pit is ringed by low railings (y 3..3.9), turned into a
-	# guard rail so the landing never becomes a cliff. Pushing EAST at z=-3.0
-	# must be stopped by the x=-1.2 railing (z -5.2..-2.0), so the female's
-	# centre stays WEST of the railing (x < -0.9): she may not reach the open
-	# pit beside it.
-	_female.global_position = Vector3(-3.0, 3.0, -3.0)
+	# The stairwell pit is guarded by the dividing walls at x=±1.2 and the front
+	# railing at z=-2.0. Pushing SOUTH from the landing at x=0.0 must be stopped
+	# by the railing, so the female's z stays > -2.1: she may not reach the open
+	# pit below.
+	_female.global_position = Vector3(0.0, 3.0, -1.5)
 	for i in 10:
 		await get_tree().physics_frame
-	await _walk_to(_female, Vector3(-1.0, 3.0, -3.0), 240)
-	if _female.global_position.x < -0.9:
-		print("PASS stairwell railing blocks passage beside the pit (x=%.2f)" % _female.global_position.x)
+	await _walk_to(_female, Vector3(0.0, 3.0, -3.5), 240)
+	if _female.global_position.z > -2.1:
+		print("PASS stairwell railing blocks passage into the pit (z=%.2f)" % _female.global_position.z)
 	else:
-		_fail("walked through the stairwell railing into the pit (x=%.2f)" % _female.global_position.x)
+		_fail("walked past the stairwell railing into the pit (z=%.2f)" % _female.global_position.z)
 
 func _check_cats_follow_up() -> void:
 	if _male == null or _female == null:
@@ -290,17 +287,18 @@ func _check_cats_follow_up() -> void:
 		print("PASS cats climbed the staircase on their own")
 	else:
 		_fail("no cat climbed the staircase (climb_passes=%d)" % climb_passes)
-	# PHASE B — door-threading: the male perches just inside the (open) door gap,
-	# the female idles 1 m north of him (inside his follow-stop, so he stays put),
-	# and the cats start on the landing straight south of the gap. The only way
-	# north is the 1.3 m-wide doorway, so each cat must walk straight through it
-	# to reach his perch — nothing can teleport them into the bedroom.
+	# PHASE B — door-threading: the male perches just inside the (open) bedroom
+	# door, the female idles 1 m north of him (inside his follow-stop, so he stays
+	# put), and the cats start on the landing south of the gap. The only way into
+	# the bedroom is the 1.3 m-wide doorway in the west dividing wall, so each cat
+	# must walk straight through it to reach his perch — nothing can teleport them
+	# into the bedroom.
 	_male.global_position = BEDROOM_HEAD
 	_female.global_position = BEDROOM_HEAD + Vector3(0.0, 0.0, 1.0)
 	var cat_slots: Array[Vector3] = [
-		Vector3(-1.0, 3.0, 0.7),
-		Vector3(-1.6, 3.0, 0.7),
-		Vector3(-0.4, 3.0, 0.7),
+		Vector3(-0.5, 3.0, -2.5),
+		Vector3(-1.0, 3.0, -2.5),
+		Vector3(0.0, 3.0, -2.5),
 	]
 	var k := 0
 	for c in get_tree().get_nodes_in_group("cat"):
@@ -332,7 +330,7 @@ func _cat_on_upper_floor() -> bool:
 
 func _cat_past_door() -> bool:
 	for c in get_tree().get_nodes_in_group("cat"):
-		if (c as Node3D).global_position.z > 1.2:
+		if (c as Node3D).global_position.x < -1.2:
 			return true
 	return false
 

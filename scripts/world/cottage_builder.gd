@@ -129,17 +129,15 @@ func _build_base() -> void:
 	# exposed it).
 	_solid(self, Vector3(30.0, 0.4, 26.0), Vector3(0.0, -0.18, 0.0), C_GRASS)
 	_solid(self, Vector3(12.4, 0.4, 11.4), Vector3(0.0, -0.1, -0.5), C_FLOOR)
-	# Upstairs floor (top y 3.0). The whole SOUTH half is one large flat landing
-	# wrapped around the open stairwell pit (west + centre + east slabs), and the
-	# rooms sit up NORTH: facing +z (north) from the top of the stairs, the
-	# BEDROOM (west, x<0) and the BATHROOM (east, x>0) are on the SAME side of
-	# the landing and their doors stand side-by-side in the cross-wall at z=1.2.
-	# The pit band (x -1.2..1.2, z -6.2..-2.0) stays open for the staircase.
-	_solid(self, Vector3(5.0, 0.4, 7.4), Vector3(-3.7, 2.8, -2.5), C_FLOOR)   # landing (west of the pit)
-	_solid(self, Vector3(5.0, 0.4, 7.4), Vector3(3.7, 2.8, -2.5), C_FLOOR)    # landing (east of the pit)
-	_solid(self, Vector3(2.4, 0.4, 3.2), Vector3(0.0, 2.8, -0.4), C_FLOOR)    # landing (north of the pit)
-	_solid(self, Vector3(6.2, 0.4, 4.0), Vector3(-3.1, 2.8, 3.2), C_FLOOR)    # bedroom (west/north)
-	_solid(self, Vector3(6.2, 0.4, 4.0), Vector3(3.1, 2.8, 3.2), C_FLOOR)     # bathroom (east/north)
+	# Upstairs floor (top y 3.0). Three-column layout:
+	#   BEDROOM (west, x -6.2..-1.2) | LANDING (center, x -1.2..1.2) | BATHROOM (east, x 1.2..6.2)
+	# The stairwell pit (x -1.2..1.2, z -6.2..-2.0) stays open for the staircase;
+	# the landing slab covers z -2.0..5.2 (the ramp covers z -2.0..-6.15; the
+	# slab must NOT extend south of z -2.0 or it blocks the ramp slope).
+	# Bedroom and bathroom slabs run the full depth (no pit in those zones).
+	_solid(self, Vector3(5.0, 0.4, 11.4), Vector3(-3.7, 2.8, -0.5), C_FLOOR)  # bedroom (west, full depth)
+	_solid(self, Vector3(2.4, 0.4, 7.2), Vector3(0.0, 2.8, 1.6), C_FLOOR)    # landing (center, z -2.0..5.2)
+	_solid(self, Vector3(5.0, 0.4, 11.4), Vector3(3.7, 2.8, -0.5), C_FLOOR)   # bathroom (east, full depth)
 
 ## Outer shell (exterior walls) for both floors. The south wall has the front
 ## door gap; the upper south wall is solid.
@@ -166,20 +164,14 @@ func _build_entrance() -> void:
 	_mesh(self, Vector3(0.12, GH, 0.12), Vector3(1.15, GH * 0.5, 5.22), C_WOOD_D)
 	_mesh(self, Vector3(2.4, 0.12, 0.12), Vector3(0.0, GH - 0.06, 5.22), C_WOOD_D)
 
-## Interior dividing wall (living/kitchen on the ground floor) and
-## (bedroom/bathroom on the upper floor), each with a doorway. The ground-floor
+## Interior dividing wall (living/kitchen on the ground floor). The ground-floor
 ## back segments are REMOVED so the open stairwell stays completely visually
-## open. On the upper floor the divider runs up the centre of the NORTH half
-## (x=0, z 1.1..5.2): it splits the two upstairs rooms and sits just past the
-## door-line of the single cross-wall at z=1.2, so the bedroom and bathroom doors
-## stay side-by-side on the landing (bedroom west/left, bathroom east/right).
+## open. The upper floor bedroom/bathroom divider is handled by the dividing
+## walls in _build_upstairs_hallway().
 func _build_interior_walls() -> void:
 	# Ground floor: kitchen/living divider in the front area (z 1.6..4.4). Ends
 	# before the front wall so the doorway/foyer stays a genuine open passage.
 	_solid(self, Vector3(0.2, GH, 2.8), Vector3(-0.1, GH * 0.5, 3.0), C_WALL)
-	# Upper floor: bedroom/bathroom divider up the centre of the north half
-	# (x 0, z 1.1..5.2, i.e. just north of the cross-wall door line).
-	_solid(self, Vector3(0.2, GH, 4.1), Vector3(0.0, UF + GH * 0.5, 3.15), C_WALL)
 
 ## Stairwell shaft (back-center) with its own walls and a straight staircase.
 ## The front jamb blocks (previously at z=-2.0) that shrank the stairwell opening
@@ -322,60 +314,62 @@ func _build_nav_steps() -> void:
 		cs.shape = shp
 		sb.add_child(cs)
 
-## Upstairs (Phase 7 requirement, layout correction): one shared landing and two
-## rooms stood side-by-side AHEAD of the player at the top of the stairs.
+## Upstairs three-column layout: BEDROOM (west, x<-1.2) | LANDING (center) | BATHROOM (east, x>1.2).
 ##
 ## The player climbs the stairs, crests at z=-5.2, walks around the open stairwell
-## pit onto the flat landing, and faces straight north (toward +z) at the doors:
-##   - a single cross-wall runs across the house at z=1.2 (y 3..6) split by the
-##     two 1.3-wide door gaps (with a short nib between them);
-##   - the BEDROOM (west/left) and BATHROOM (east/right) lie on the same side of
-##     the landing (the north half), so both doors are visible side-by-side and
-##     the rooms never open straight onto the staircase;
-##   - coded, closed InteractableDoors hang in the gaps and swing NORTH (+z) INTO
-##     their rooms, so from the landing the player sees two closed doors ahead and
-##     must open one to pass.
-## Low railings round the open stairwell pit (y 3..3.9) so the landing never turns
-## into a cliff onto the descending staircase; the BACK corners stay open so the
-## player steps sideways off the top of the stairs onto the landing.
+## pit onto the flat landing, and faces north (+z). Dividing walls at x=±1.2
+## separate the three zones along the full depth of the upper floor. A bedroom
+## door on the west dividing wall opens INTO the bedroom; a bathroom door on the
+## east dividing wall opens INTO the bathroom.
+## Low railings guard the stairwell pit edges that are not covered by the
+## dividing walls; the ramp flat top at the back provides the walkable surface
+## at the rear of the center zone.
 func _build_upstairs_hallway() -> void:
 	var wall_y := (UF + UH) * 0.5
+	var wall_z_back := Z_BACK - 0.2
+	var wall_z_front := Z_FRONT + 0.2
+	var wall_full_z := (wall_z_front - wall_z_back) * 0.5
+	var wall_centre_z := (wall_z_back + wall_z_front) * 0.5
 
-	# Cross-wall at z=1.2 (y 3..6) in three pieces: west segment, centre nib,
-	# east segment. The two door gaps land beside each other: x -1.85..-0.55
-	# (bedroom door) and x 0.55..1.85 (bathroom door).
-	_solid(self, Vector3(4.35, GH, 0.2), Vector3(-4.025, wall_y, 1.2), C_WALL)
-	_solid(self, Vector3(1.1, GH, 0.2), Vector3(0.0, wall_y, 1.2), C_WALL)
-	_solid(self, Vector3(4.35, GH, 0.2), Vector3(4.025, wall_y, 1.2), C_WALL)
+	# West dividing wall (bedroom | landing), runs full depth of the upper floor.
+	_solid(self, Vector3(WT, GH, wall_full_z), Vector3(-1.2, wall_y, wall_centre_z), C_WALL)
+	# East dividing wall (landing | bathroom), runs full depth of the upper floor.
+	_solid(self, Vector3(WT, GH, wall_full_z), Vector3(1.2, wall_y, wall_centre_z), C_WALL)
 
-	# Low railings around the stairwell pit at upper-floor level (y 3..3.9).
-	_solid(self, Vector3(0.2, 0.9, 3.2), Vector3(-1.2, UF + 0.45, -3.6), C_WALL)
-	_solid(self, Vector3(0.2, 0.9, 3.2), Vector3(1.2, UF + 0.45, -3.6), C_WALL)
-	_solid(self, Vector3(2.4, 0.9, 0.2), Vector3(0.0, UF + 0.45, -2.0), C_WALL)
-
-	# BEDROOM door: hinged on the EAST jamb of its gap, panel covers the gap and
-	# swings NORTH (+z) INTO the bedroom. The 180° yaw maps local +x to world -x
-	# (panel hangs back across the gap) while the positive 100° swing carries the
-	# free edge north into the room.
+	# BEDROOM door: on the west dividing wall at z=-1.0. Panel covers the gap and
+	# swings WEST (-x) INTO the bedroom. The door node is rotated -90° so local
+	# +x maps to world +z (panel spans the z-gap). Hinge offset (-0.65, 0, 0)
+	# places the hinge at the south jamb of the gap (z -1.65). Negative
+	# open_angle_deg swings the free edge westward into the room.
 	var bed := InteractableDoor.new()
 	bed.name = "BedroomDoor"
-	bed.setup_door(Vector3(-1.2, UF, 1.2), Vector3(-0.65, 0.0, 0.0))
-	bed.rotation_degrees.y = 180.0
+	bed.setup_door(Vector3(-1.2, UF, -1.0), Vector3(-0.65, 0.0, 0.0))
+	bed.rotation_degrees.y = -90.0
+	bed.open_angle_deg = -100.0
 	bed.is_open = false
 	bed.floor_level = 1
 	bed.panel_color = C_WOOD_D
 	add_child(bed)
 
-	# BATHROOM door: the mirror image of the bedroom door on the other side of
-	# the nib, hinged on the east jamb and swinging north into the bathroom.
+	# BATHROOM door: on the east dividing wall at z=-1.0. Mirror image of the
+	# bedroom door: same rotation and hinge offset, but positive open_angle_deg
+	# swings the free edge eastward (+x) into the bathroom.
 	var bath := InteractableDoor.new()
 	bath.name = "BathroomDoor"
-	bath.setup_door(Vector3(1.2, UF, 1.2), Vector3(-0.65, 0.0, 0.0))
-	bath.rotation_degrees.y = 180.0
+	bath.setup_door(Vector3(1.2, UF, -1.0), Vector3(-0.65, 0.0, 0.0))
+	bath.rotation_degrees.y = -90.0
+	bath.open_angle_deg = 100.0
 	bath.is_open = false
 	bath.floor_level = 1
 	bath.panel_color = C_WOOD_D
 	add_child(bath)
+
+	# Pit railings: the dividing walls at x=±1.2 serve as side barriers for the
+	# stairwell pit. Only the front railing across the landing edge (z=-2.0) and
+	# the back railings near the ramp top (z=-5.1) are needed.
+	_solid(self, Vector3(2.4, 0.9, 0.2), Vector3(0.0, UF + 0.45, -2.0), C_WALL)
+	_solid(self, Vector3(0.2, 0.9, 0.1), Vector3(-1.2, UF + 0.45, -5.1), C_WALL)
+	_solid(self, Vector3(0.2, 0.9, 0.1), Vector3(1.2, UF + 0.45, -5.1), C_WALL)
 
 ## Simple blockout furniture so rooms read clearly and a few future hiding spots
 ## have a physical shape. No interaction yet.
@@ -608,8 +602,8 @@ func _on_kitchen_cab_used(_cab: InteractableCabinet) -> void:
 ##     that overhangs the ground floor);
 ##   - the open stairwell pit and walls/furniture carved out (followers never path
 ##     across the pit or through a wall);
-##   - the fixed door gaps in the cross-wall left open so followers can thread the
-##     bedroom/bathroom doors;
+##   - the dividing walls at x=±1.2 left open only at the bedroom/bathroom door
+##     gaps so followers can thread through;
 ##   - the sloped staircase ramp kept as a walkable connector between floors.
 ## Every Interactable's moving panel (door/cabinet) is a StaticBody3D under an
 ## Area3D; those are EXCLUDED (their collision_layer is temporarily cleared around

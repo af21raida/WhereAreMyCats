@@ -115,10 +115,10 @@ func _run_checks() -> void:
 		else:
 			_fail("bathroom switch not focused in bathroom (current=%s)" % _mgr.current)
 
-	# 3c) Upstairs cross-wall: the bedroom (LEFT) + bathroom (RIGHT) doors are real
-	# interactables on the upper floor, default CLOSED, side-by-side straight
-	# ahead of the player at the top of the stairs. The player can focus and open
-	# each one from the landing (the orbit camera lets her face the door wall).
+	# 3c) Upstairs dividing walls: the bedroom (LEFT) + bathroom (RIGHT) doors are
+	# real interactables on the upper floor, default CLOSED, in the dividing walls
+	# at x=±1.2. The player can focus and open each one from the landing (the orbit
+	# camera lets her face the doors ahead).
 	await _room_door_checks()
 
 	# 4) Inspectable: fireplace -> announce message shows.
@@ -152,11 +152,10 @@ func _room_door_checks() -> void:
 		int(adoor.get("floor_level")) == 1 and adoor is InteractableDoor)
 	_ensure("bathroom door defaults closed", not bool(adoor.get("is_open")))
 
-	# Bedroom door (LEFT): stand on the landing just south of it, orbit the camera
-	# to face the door wall (yaw 180° = camera north looking south at the player,
-	# with both doors straight ahead of her), focus + open.
+	# Bedroom door (LEFT): stand on the landing south of it, orbit the camera
+	# to face north (+z ahead, doors in the dividing walls ahead), focus + open.
 	_orbit_camera(180.0)
-	_female.global_position = Vector3(-1.2, 3.0, 0.7)
+	_female.global_position = Vector3(-0.5, 3.0, -2.5)
 	await _await_frames(45)
 	if _mgr.current != bdoor:
 		_fail("bedroom door not focused from the landing (current=%s)" % _mgr.current)
@@ -171,8 +170,8 @@ func _room_door_checks() -> void:
 		else:
 			_fail("bedroom door did not open on interact (%s -> %s)" % [before, after])
 
-	# Bathroom door (RIGHT): same approach, opposite side of the nib.
-	_female.global_position = Vector3(1.2, 3.0, 0.7)
+	# Bathroom door (RIGHT): same approach, opposite dividing wall.
+	_female.global_position = Vector3(0.5, 3.0, -2.5)
 	await _await_frames(45)
 	if _mgr.current != adoor:
 		_fail("bathroom door not focused from the landing (current=%s)" % _mgr.current)
